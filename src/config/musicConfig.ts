@@ -11,7 +11,7 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 	showInNavbar: true,
 
 	// 使用方式："meting" 使用 Meting API，"local" 使用本地音乐列表
-	mode: "meting",
+	mode: "local",
 
 	// 默认音量 (0-1)
 	volume: 0.7,
@@ -50,12 +50,33 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 	local: {
 		playlist: [
 			{
-				name: "使一颗心免于哀伤",
-				artist: "知更鸟 / HOYO-MiX / Chevy",
-				url: "/assets/music/使一颗心免于哀伤-哼唱.mp3",
-				cover: "/assets/music/cover/109951169585655912.webp",
-				lrc: "",
+				name:"Take Me Hand",
+				artist:"DAISHI DANCE、Cécile Corbel",
+				url:"/assets/music/Take Me Hand.mp3",
+				cover:"/assets/music/cover/Take Me Hand.jpg",
+				lrc:"/assets/music/lrc/Take Me Hand.lrc",
 			},
+			{
+				name:"单车",
+				artist:"陈奕迅",
+				url:"/assets/music/陈奕迅 - 单车_HQ.mp3",
+				cover:"/assets/music/cover/bike.jpg",
+				lrc:"/assets/music/lrc/陈奕迅 - 单车_HQ.lrc",
+			},
+			{
+				name:"红尘客栈",
+				artist:"周杰伦",
+				url:"/assets/music/周杰伦 - 红尘客栈_HQ.mp3",
+				cover:"/assets/music/cover/周杰伦 - 红尘客栈_HQ.jpg",
+				lrc:"/assets/music/lrc/周杰伦 - 红尘客栈_HQ.lrc",	
+			},
+			{
+				name:"黑色幽默",
+				artist:"周杰伦",
+				url:"/assets/music/周杰伦 - 黑色幽默_HQ.mp3",
+				cover:"/assets/music/cover/周杰伦 - 黑色幽默_HQ.jpg",
+				lrc:"/assets/music/lrc/周杰伦 - 黑色幽默_HQ.lrc",	
+			}
 		],
 	},
 };
