@@ -4,7 +4,7 @@ published: 2026-07-15
 description: '杰哥求真实？距离不是问题，谁说为爱殉情是古老的谎言（doge）'
 image: './images/cycling.jpg'
 tags: [日常, 锻炼]
-category: ''
+category: '日常'
 draft: false 
 lang: ''
 ---
