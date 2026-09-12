@@ -12,7 +12,7 @@ lang: ''
 
 3.0容易出问题
 
-![img](./images/fastbootError.jpeg)
+![提示 Press any key to reboot](./images/fastbootError.jpeg)
 
 
 
