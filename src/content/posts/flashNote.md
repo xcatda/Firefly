@@ -12,7 +12,7 @@ lang: ''
 
 3.0容易出问题
 
-![img](https://i-blog.csdnimg.cn/blog_migrate/486b2a44bd5b5036b3097da68a9148c4.jpeg)
+![img](./images/fastbootError.jpeg)
 
 
 
