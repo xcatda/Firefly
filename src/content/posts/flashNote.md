@@ -1,8 +1,8 @@
 ---
 title: 连接Fastboot弹出，提示press any key reboot。       
-published: 2026-09-9
+published: 2026-09-09
 description: '刷机注意事项：用USB2.0'
-image: './images/cycling.jpg'
+image: ''
 tags: [刷机]
 category: '刷机'
 draft: false 
