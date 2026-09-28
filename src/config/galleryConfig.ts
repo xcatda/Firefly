@@ -21,6 +21,22 @@ export const galleryConfig: GalleryConfig = {
 			date: "2026-01-01",
 			tags: ["崩坏星穹铁道", "流萤"],
 		},
+		{
+			id: "genshin",
+			name: "原神",
+			description: "踏入充满冒险的神秘世界。",
+			location: "原神",
+			date: "2026-10-04",
+			tags: ["原神"],
+		},
+		{
+			id: "Minecraft",
+			name: "我的世界",
+			description: "在这里创造无限。",
+			location: "我的世界",
+			date: "2026-07-03",
+			tags: ["我的世界"],
+		},
 	],
 
 	// 瀑布流最小列宽(px)，浏览器根据容器宽度自动计算列数，默认 240
