@@ -305,6 +305,9 @@ export const en: Translation = {
 	[Key.todoCheckin]: "Check in",
 	[Key.todoCheckedIn]: "Checked in today",
 	[Key.todoStreak]: "{days}-day streak",
+	[Key.todoHeatmap]: "Check-in history",
+	[Key.todoHeatmapTotal]: "{count} check-ins",
+	[Key.todoHeatmapEmpty]: "No check-ins yet — tap Check in above to leave the first mark",
 
 	[Key.shareArticle]: "Share",
 	[Key.generatingPoster]: "Generating Poster...",

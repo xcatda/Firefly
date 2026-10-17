@@ -1,7 +1,7 @@
 ---
 import { getCollection, render } from "astro:content";
 import { Icon } from "astro-icon/components";
-import { todoConfig } from "@/config";
+import { siteConfig, todoConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
@@ -12,8 +12,20 @@ if (!todoConfig.enable) {
 	return Astro.redirect("/404/");
 }
 
+const MS_PER_DAY = 86_400_000;
+
+const LOCALE_MAP: Record<string, string> = {
+	zh_CN: "zh-CN",
+	zh_TW: "zh-TW",
+	en: "en-US",
+	ja: "ja-JP",
+	ru: "ru-RU",
+};
+
+const locale = LOCALE_MAP[siteConfig.lang] ?? "en-US";
 const title = todoConfig.title || i18n(I18nKey.todo);
 const description = todoConfig.description || i18n(I18nKey.todoDescription);
+const heatmapTotalTemplate = i18n(I18nKey.todoHeatmapTotal);
 
 const entries = await getCollection("todos");
 
@@ -22,6 +34,15 @@ const items = await Promise.all(
 	entries.map(async (entry) => {
 		const progress = entry.data.progress ?? 0;
 		const progressTotal = entry.data.progressTotal;
+		const progressStep = entry.data.progressStep ?? 1;
+
+		// checkins 是写进 markdown 的打卡日期，进度 = progress + 打卡天数 × progressStep
+		const checkins = [
+			...new Set((entry.data.checkins ?? []).map((date) => formatDateToYYYYMMDD(date))),
+		].sort();
+		const value = progressTotal
+			? Math.min(progressTotal, progress + checkins.length * progressStep)
+			: progress;
 
 		return {
 			id: entry.id,
@@ -29,14 +50,15 @@ const items = await Promise.all(
 			done: entry.data.done ?? false,
 			description: entry.data.description ?? "",
 			date: entry.data.date,
-			// 进度型待办：填了 progressTotal 才显示进度条和「今日打卡」
 			progress,
 			progressTotal,
-			progressStep: entry.data.progressStep ?? 1,
+			progressStep,
 			progressUnit: entry.data.progressUnit ?? "",
+			checkins,
+			value,
 			percent:
 				progressTotal && progressTotal > 0
-					? Math.min(100, Math.round((progress / progressTotal) * 100))
+					? Math.min(100, Math.round((value / progressTotal) * 100))
 					: 0,
 			Note: entry.body?.trim() ? (await render(entry)).Content : null,
 		};
@@ -55,6 +77,91 @@ const todos = items.sort((a, b) => {
 const total = todos.length;
 const doneCount = todos.filter((todo) => todo.done).length;
 const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
+
+/* ---------- 底部「打卡记录」小墙：所有待办的打卡日期汇总 ---------- */
+
+const checkinCounts = new Map<string, number>();
+for (const item of items) {
+	for (const day of item.checkins) {
+		checkinCounts.set(day, (checkinCounts.get(day) ?? 0) + 1);
+	}
+}
+const wallTotal = [...checkinCounts.values()].reduce((sum, count) => sum + count, 0);
+
+const weeks = Math.min(
+	53,
+	Math.max(4, Math.floor(todoConfig.heatmapWeeks ?? 26)),
+);
+
+const timeZone = siteConfig.timezone;
+const todayKey = new Intl.DateTimeFormat("en-CA", {
+	year: "numeric",
+	month: "2-digit",
+	day: "2-digit",
+	...(timeZone ? { timeZone } : {}),
+}).format(new Date());
+
+const todayUTC = new Date(`${todayKey}T00:00:00.000Z`);
+const rangeStart = new Date(
+	todayUTC.getTime() - (todayUTC.getUTCDay() + (weeks - 1) * 7) * MS_PER_DAY,
+);
+
+type WallDay = { key: string; count: number; level: number; future: boolean };
+
+const wallDays: WallDay[] = [];
+for (let index = 0; index < weeks * 7; index += 1) {
+	const date = new Date(rangeStart.getTime() + index * MS_PER_DAY);
+	const key = date.toISOString().slice(0, 10);
+	wallDays.push({
+		key,
+		count: checkinCounts.get(key) ?? 0,
+		level: 0,
+		future: date.getTime() > todayUTC.getTime(),
+	});
+}
+
+const maxDayCount = Math.max(1, ...wallDays.map((day) => day.count));
+for (const day of wallDays) {
+	day.level =
+		day.count === 0
+			? 0
+			: Math.min(4, Math.max(1, Math.ceil((day.count / maxDayCount) * 4)));
+}
+
+const monthFormatter = new Intl.DateTimeFormat(locale, {
+	month: "short",
+	timeZone: "UTC",
+});
+const monthLabels: { column: number; label: string }[] = [];
+for (let week = 0; week < weeks; week += 1) {
+	let labeled = false;
+	for (let dayOfWeek = 0; dayOfWeek < 7 && !labeled; dayOfWeek += 1) {
+		const date = new Date(`${wallDays[week * 7 + dayOfWeek].key}T00:00:00.000Z`);
+		if (date.getUTCDate() !== 1) continue;
+		if (monthLabels.some((item) => week - item.column < 3)) continue;
+		monthLabels.push({ column: week, label: monthFormatter.format(date) });
+		labeled = true;
+	}
+}
+if (monthLabels.length === 0 || monthLabels[0].column > 3) {
+	monthLabels.unshift({
+		column: 0,
+		label: monthFormatter.format(new Date(`${wallDays[0].key}T00:00:00.000Z`)),
+	});
+}
+
+const weekdayFormatter = new Intl.DateTimeFormat(locale, {
+	weekday: "short",
+	timeZone: "UTC",
+});
+const referenceSunday = new Date("2024-01-07T00:00:00.000Z");
+const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
+	index === 1 || index === 3 || index === 5
+		? weekdayFormatter.format(
+				new Date(referenceSunday.getTime() + index * MS_PER_DAY),
+			)
+		: "",
+);
 ---
 
 <MainGridLayout title={title} description={description}>
@@ -95,7 +202,11 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
             {todos.map((todo) => {
               const Note = todo.Note;
               return (
-                <li class="todo-item" data-todo-id={todo.id}>
+                <li
+                  class="todo-item"
+                  data-todo-id={todo.id}
+                  data-checkins={todo.checkins.join(",")}
+                >
                   <label class="todo-check">
                     <input
                       type="checkbox"
@@ -133,7 +244,7 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
                           />
                         </div>
                         <span class="todo-progress-count">
-                          <span data-todo-progress-value>{todo.progress}</span>
+                          <span data-todo-progress-value>{todo.value}</span>
                           <span class="mx-0.5">/</span>
                           <span>{todo.progressTotal}</span>
                           {todo.progressUnit && (
@@ -159,6 +270,70 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
           </ul>
         )
       }
+
+      <!-- 打卡记录小墙（数据来自各待办 markdown 里的 checkins） -->
+      <div class="todo-wall">
+        <div class="todo-wall-head">
+          <span class="todo-wall-title">
+            <Icon name="material-symbols:local-fire-department-rounded" class="todo-wall-icon" />
+            {i18n(I18nKey.todoHeatmap)}
+          </span>
+          <span class="todo-wall-total" data-todo-wall-total>
+            {heatmapTotalTemplate.replace("{count}", String(wallTotal))}
+          </span>
+        </div>
+
+        <div class="todo-wall-scroll">
+          <div
+            class="todo-wall-canvas"
+            style={`--wall-cell:9px;--wall-gap:2px;--wall-weeks:${weeks};`}
+          >
+            <div class="todo-wall-row">
+              <div class="todo-wall-gutter" aria-hidden="true"></div>
+              <div class="todo-wall-months">
+                {monthLabels.map((month) => (
+                  <span
+                    class:list={[
+                      "todo-wall-month",
+                      { "todo-wall-month-end": month.column > weeks - 4 },
+                    ]}
+                    style={`grid-column:${month.column + 1}`}
+                  >
+                    {month.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div class="todo-wall-row">
+              <div class="todo-wall-weekdays" aria-hidden="true">
+                {weekdayLabels.map((label) => (
+                  <span class="todo-wall-weekday">{label}</span>
+                ))}
+              </div>
+              <div class="todo-wall-cells">
+                {wallDays.map((day) => (
+                  <span
+                    class="todo-wall-cell"
+                    data-level={day.level}
+                    data-wall-date={day.key}
+                    data-count={day.count}
+                    data-future={day.future ? "true" : undefined}
+                    title={
+                      day.count > 0
+                        ? `${day.key} · ${heatmapTotalTemplate.replace("{count}", String(day.count))}`
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {wallTotal === 0 && (
+          <p class="todo-wall-empty">{i18n(I18nKey.todoHeatmapEmpty)}</p>
+        )}
+      </div>
     </div>
   </div>
 </MainGridLayout>
@@ -169,6 +344,7 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
     checkinLabel: i18n(I18nKey.todoCheckin),
     checkedLabel: i18n(I18nKey.todoCheckedIn),
     streakTemplate: i18n(I18nKey.todoStreak),
+    wallTotalTemplate: heatmapTotalTemplate,
   }}
 >
 	(() => {
@@ -202,8 +378,9 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 
 		// 从今天（今天还没打卡就从昨天）往回数连续打卡天数
 		const streakOf = (days) => {
-			if (!Array.isArray(days) || days.length === 0) return 0;
-			const checked = new Set(days);
+			const list = Array.isArray(days) ? days : [...days];
+			if (list.length === 0) return 0;
+			const checked = new Set(list);
 			const cursor = new Date();
 			if (!checked.has(dayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
 			let streak = 0;
@@ -212,6 +389,17 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 				cursor.setDate(cursor.getDate() - 1);
 			}
 			return streak;
+		};
+
+		// markdown 里已记录的打卡 + 浏览器本地补的打卡（同一日期只算一次）
+		const checkinSetOf = (item, localState) => {
+			const fromMarkdown = (item.getAttribute("data-checkins") || "")
+				.split(",")
+				.map((value) => value.trim())
+				.filter(Boolean);
+			const id = item.getAttribute("data-todo-id");
+			const local = Array.isArray(localState[id]) ? localState[id] : [];
+			return new Set([...fromMarkdown, ...local]);
 		};
 
 		// 把本地状态刷到勾选框 / 进度条 / 打卡按钮上
@@ -234,9 +422,9 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 					const base = Number(row.getAttribute("data-base")) || 0;
 					const totalPoints = Number(row.getAttribute("data-total")) || 0;
 					const step = Number(row.getAttribute("data-step")) || 1;
-					const days = Array.isArray(checkState[id]) ? checkState[id] : [];
+					const days = checkinSetOf(item, checkState);
 					const value =
-						totalPoints > 0 ? Math.min(totalPoints, base + days.length * step) : base;
+						totalPoints > 0 ? Math.min(totalPoints, base + days.size * step) : base;
 					completed = totalPoints > 0 && value >= totalPoints;
 
 					const bar = row.querySelector("[data-todo-bar]");
@@ -252,7 +440,7 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 					if (valueEl) valueEl.textContent = String(value);
 
 					if (button) {
-						const checkedIn = days.includes(today);
+						const checkedIn = days.has(today);
 						button.disabled = checkedIn;
 						button.textContent = checkedIn ? checkedLabel : checkinLabel;
 					}
@@ -290,17 +478,38 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 			}
 		};
 
-		// 记下「这条待办划没划掉」
-		const rememberDone = (box) => {
-			const item = box.closest("[data-todo-id]");
-			if (!item) return;
-			const state = readMap(DONE_KEY);
-			state[item.getAttribute("data-todo-id")] = box.checked;
-			writeMap(DONE_KEY, state);
-			paint();
+		// 打卡成功后，把底部小墙里对应那天也点亮（不用等刷新）
+		const bumpWall = (date) => {
+			const cell = document.querySelector(`[data-wall-date="${date}"]`);
+			if (!cell) return;
+
+			const count = (Number(cell.getAttribute("data-count")) || 0) + 1;
+			cell.setAttribute("data-count", String(count));
+
+			const cells = Array.from(document.querySelectorAll("[data-wall-date]"));
+			const counts = cells.map((element) =>
+				element === cell ? count : Number(element.getAttribute("data-count")) || 0,
+			);
+			const max = Math.max(1, ...counts);
+			cells.forEach((element, index) => {
+				const value = counts[index];
+				element.setAttribute(
+					"data-level",
+					value === 0 ? "0" : String(Math.min(4, Math.max(1, Math.ceil((value / max) * 4)))),
+				);
+			});
+
+			const totalEl = document.querySelector("[data-todo-wall-total]");
+			if (totalEl) {
+				const sum = counts.reduce((acc, value) => acc + value, 0);
+				totalEl.textContent = wallTotalTemplate.replace("{count}", String(sum));
+			}
+
+			const emptyEl = document.querySelector(".todo-wall-empty");
+			if (emptyEl) emptyEl.remove();
 		};
 
-		// 今日打卡：一天只能加一次进度
+		// 本地记一笔（线上就靠它）；dev 下再顺手写进 markdown
 		const checkin = (button) => {
 			const item = button.closest("[data-todo-id]");
 			if (!item) return;
@@ -309,8 +518,35 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 			const days = Array.isArray(state[id]) ? state[id] : [];
 			const today = dayKey();
 			if (days.includes(today)) return;
+
 			state[id] = days.concat(today);
 			writeMap(CHECK_KEY, state);
+			paint();
+			bumpWall(today);
+			commit(id, today);
+		};
+
+		// dev 下由 src/plugins/dev-todo-checkin.mjs 提供，线上没有这个接口就静默失败
+		const commit = async (id, date) => {
+			try {
+				const response = await fetch(
+					`/api/todo-check/?id=${encodeURIComponent(id)}&date=${encodeURIComponent(date)}`,
+					{ headers: { accept: "application/json" } },
+				);
+				if (!response.ok) return;
+				await response.json();
+			} catch {
+				/* 线上没有这个接口，保持本地状态即可 */
+			}
+		};
+
+		// 记下「这条待办划没划掉」
+		const rememberDone = (box) => {
+			const item = box.closest("[data-todo-id]");
+			if (!item) return;
+			const state = readMap(DONE_KEY);
+			state[item.getAttribute("data-todo-id")] = box.checked;
+			writeMap(DONE_KEY, state);
 			paint();
 		};
 
@@ -590,6 +826,140 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 		margin-top: 0.35rem;
 		font-size: 0.82rem;
 		line-height: 1.6;
+		color: var(--content-meta);
+	}
+
+	/* 底部打卡小墙 */
+	.todo-wall {
+		margin-top: 1.5rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--line-divider);
+	}
+
+	.todo-wall-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+		font-size: 0.8rem;
+		color: var(--content-meta);
+	}
+
+	.todo-wall-title {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-weight: 600;
+		color: var(--deep-text);
+	}
+
+	.todo-wall-icon {
+		font-size: 1rem;
+		color: var(--primary);
+	}
+
+	.todo-wall-total {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.todo-wall-scroll {
+		overflow-x: auto;
+		overflow-y: hidden;
+	}
+
+	.todo-wall-canvas {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		width: max-content;
+	}
+
+	.todo-wall-row {
+		display: flex;
+		gap: 6px;
+	}
+
+	.todo-wall-gutter {
+		flex: none;
+		width: 22px;
+	}
+
+	.todo-wall-months {
+		display: grid;
+		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
+		gap: var(--wall-gap);
+	}
+
+	.todo-wall-month {
+		grid-row: 1;
+		font-size: 0.6rem;
+		line-height: 1;
+		color: var(--content-meta);
+		white-space: nowrap;
+		justify-self: start;
+	}
+
+	.todo-wall-month-end {
+		justify-self: end;
+	}
+
+	.todo-wall-weekdays {
+		display: grid;
+		flex: none;
+		grid-template-rows: repeat(7, var(--wall-cell));
+		gap: var(--wall-gap);
+		width: 22px;
+	}
+
+	.todo-wall-weekday {
+		font-size: 0.6rem;
+		line-height: var(--wall-cell);
+		color: var(--content-meta);
+		text-align: right;
+		white-space: nowrap;
+	}
+
+	.todo-wall-cells {
+		display: grid;
+		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
+		grid-template-rows: repeat(7, var(--wall-cell));
+		grid-auto-flow: column;
+		gap: var(--wall-gap);
+	}
+
+	.todo-wall-cell {
+		display: block;
+		width: var(--wall-cell);
+		height: var(--wall-cell);
+		border-radius: 2px;
+		background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+		transition: background-color 0.2s ease;
+	}
+
+	.todo-wall-cell[data-level="1"] {
+		background-color: color-mix(in oklab, var(--primary) 30%, transparent);
+	}
+
+	.todo-wall-cell[data-level="2"] {
+		background-color: color-mix(in oklab, var(--primary) 50%, transparent);
+	}
+
+	.todo-wall-cell[data-level="3"] {
+		background-color: color-mix(in oklab, var(--primary) 72%, transparent);
+	}
+
+	.todo-wall-cell[data-level="4"] {
+		background-color: var(--primary);
+	}
+
+	.todo-wall-cell[data-future="true"] {
+		background-color: transparent;
+	}
+
+	.todo-wall-empty {
+		margin: 0.6rem 0 0;
+		font-size: 0.72rem;
 		color: var(--content-meta);
 	}
 

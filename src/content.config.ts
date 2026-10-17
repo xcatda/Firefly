@@ -57,6 +57,10 @@ const todosCollection = defineCollection({
 		progressStep: z.number().optional().default(1),
 		// 进度单位，比如「讲」「页」「天」
 		progressUnit: z.string().optional().default(""),
+
+		// 打卡日期，一天一条，例如 checkins: [2026-10-15, 2026-10-16]
+		// 页面上的进度 = progress + 打卡天数 × progressStep
+		checkins: z.array(z.date()).optional().default([]),
 	}),
 });
 

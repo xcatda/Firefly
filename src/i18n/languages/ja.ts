@@ -304,6 +304,9 @@ export const ja: Translation = {
 	[Key.todoCheckin]: "今日のチェックイン",
 	[Key.todoCheckedIn]: "本日チェックイン済み",
 	[Key.todoStreak]: "{days} 日連続",
+	[Key.todoHeatmap]: "チェックイン記録",
+	[Key.todoHeatmapTotal]: "合計 {count} 回",
+	[Key.todoHeatmapEmpty]: "まだ記録がありません。上の「今日のチェックイン」で最初の印を付けられます",
 
 	[Key.shareArticle]: "共有",
 	[Key.generatingPoster]: "ポスター生成中...",

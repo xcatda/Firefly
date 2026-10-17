@@ -37,6 +37,7 @@ import rehypeExternalLinks from "./src/plugins/rehype-external-links.mjs";
 import rehypeFigure from "./src/plugins/rehype-figure.mjs";
 import { remarkImageGrid } from "./src/plugins/remark-image-grid.js";
 import { plantumlConfig } from "./src/config";
+import { devTodoCheckin } from "./src/plugins/dev-todo-checkin.mjs";
 
 if (process.env.NODE_ENV === "development") {
 	setMaxListeners(20);
@@ -195,6 +196,8 @@ export default defineConfig({
 			},
 		}),
 		mdx(),
+		// 仅 dev 生效：待办页「今日打卡」把日期写回 markdown
+		devTodoCheckin(),
 	],
 	markdown: {
 		remarkPlugins: [

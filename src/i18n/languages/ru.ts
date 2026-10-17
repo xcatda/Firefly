@@ -306,6 +306,9 @@ export const ru: Translation = {
 	[Key.todoCheckin]: "Отметиться",
 	[Key.todoCheckedIn]: "Сегодня отмечено",
 	[Key.todoStreak]: "серия {days} дн.",
+	[Key.todoHeatmap]: "История отметок",
+	[Key.todoHeatmapTotal]: "всего {count} отметок",
+	[Key.todoHeatmapEmpty]: "Пока нет отметок — нажмите «Отметиться» выше, чтобы поставить первую",
 
 	[Key.shareArticle]: "Поделиться",
 	[Key.generatingPoster]: "Создание постера...",

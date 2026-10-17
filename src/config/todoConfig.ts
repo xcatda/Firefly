@@ -18,4 +18,7 @@ export const todoConfig: TodoConfig = {
 
 	// 是否显示「已完成 x / y」进度条
 	showProgress: true,
+
+	// 页面底部「打卡记录」小墙显示多少周（26 约等于半年）
+	heatmapWeeks: 26,
 };

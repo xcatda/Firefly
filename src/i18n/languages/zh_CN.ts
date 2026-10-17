@@ -296,6 +296,9 @@ export const zh_CN: Translation = {
 	[Key.todoCheckin]: "今日打卡",
 	[Key.todoCheckedIn]: "今天已打卡",
 	[Key.todoStreak]: "连续 {days} 天",
+	[Key.todoHeatmap]: "打卡记录",
+	[Key.todoHeatmapTotal]: "共 {count} 次打卡",
+	[Key.todoHeatmapEmpty]: "还没有记录，点上面的「今日打卡」就能留下第一个记号",
 
 	[Key.shareArticle]: "分享",
 	[Key.generatingPoster]: "海报生成中...",

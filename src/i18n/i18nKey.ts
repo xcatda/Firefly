@@ -292,6 +292,9 @@ enum I18nKey {
 	todoCheckin = "todoCheckin",
 	todoCheckedIn = "todoCheckedIn",
 	todoStreak = "todoStreak",
+	todoHeatmap = "todoHeatmap",
+	todoHeatmapTotal = "todoHeatmapTotal",
+	todoHeatmapEmpty = "todoHeatmapEmpty",
 
 	shareArticle = "shareArticle",
 	generatingPoster = "generatingPoster",

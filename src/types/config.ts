@@ -683,6 +683,7 @@ export type TodoConfig = {
 	title?: string; // 页面标题，留空则使用 i18n 文案
 	description?: string; // 页面副标题，留空则使用 i18n 文案
 	showProgress?: boolean; // 是否显示完成进度条
+	heatmapWeeks?: number; // 底部「打卡记录」小墙显示多少周，默认 26
 };
 
 // 友链配置
