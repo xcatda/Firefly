@@ -286,6 +286,25 @@ export const ja: Translation = {
 	[Key.calendarNovember]: "11月",
 	[Key.calendarDecember]: "12月",
 
+	// 執筆チェックインウォール
+	[Key.checkinWall]: "執筆チェックイン",
+	[Key.checkinWallSubtitle]: "この一年、文章で残した毎日の記録",
+	[Key.checkinWallActiveDays]: "チェックイン日数",
+	[Key.checkinWallLongestStreak]: "最長連続",
+	[Key.checkinWallCurrentStreak]: "現在の連続",
+	[Key.checkinWallDayPosts]: "{count} 記事",
+	[Key.checkinWallLess]: "少",
+	[Key.checkinWallMore]: "多",
+
+	// ToDo リスト
+	[Key.todo]: "ToDo",
+	[Key.todoDescription]: "やること、ひとつずつ消していく",
+	[Key.todoEmpty]: "いまは ToDo がありません",
+	[Key.todoCompleted]: "完了",
+	[Key.todoCheckin]: "今日のチェックイン",
+	[Key.todoCheckedIn]: "本日チェックイン済み",
+	[Key.todoStreak]: "{days} 日連続",
+
 	[Key.shareArticle]: "共有",
 	[Key.generatingPoster]: "ポスター生成中...",
 	[Key.copied]: "コピーしました",

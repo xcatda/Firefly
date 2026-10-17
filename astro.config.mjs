@@ -18,7 +18,7 @@ import remarkDirective from "remark-directive"; /* Handle directives */
 import remarkMath from "remark-math";
 import rehypeCallouts from "rehype-callouts";
 import remarkSectionize from "remark-sectionize";
-import { expressiveCodeConfig, siteConfig } from "./src/config";
+import { expressiveCodeConfig, siteConfig, todoConfig } from "./src/config";
 import { i18n } from "./src/i18n/translation";
 import I18nKey from "./src/i18n/i18nKey";
 import { pluginLanguageBadge } from "expressive-code-language-badge"; /* Language Badge */
@@ -185,6 +185,9 @@ export default defineConfig({
 					return false;
 				}
 				if (pathname === "/gallery/" && !siteConfig.pages.gallery) {
+					return false;
+				}
+				if (pathname === "/todo/" && !todoConfig.enable) {
 					return false;
 				}
 

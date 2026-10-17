@@ -1,0 +1,773 @@
+---
+import { Icon } from "astro-icon/components";
+import { checkinWallConfig, siteConfig } from "@/config";
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
+import { getSortedPosts } from "@/utils/content-utils";
+import { getPostUrlBySlug } from "@/utils/url-utils";
+
+/**
+ * 首页写作打卡墙
+ *
+ * 类似 GitHub 贡献图的「打卡墙」：一格代表一天，颜色越深代表当天发布的文章越多。
+ * 数据来自站内文章的发布日期（可选叠加更新日期），构建期直接渲染，无需外部接口。
+ */
+
+interface Props {
+	class?: string;
+	style?: string;
+	/** 显示的周数，不传则读取 checkinWallConfig.weeks */
+	weeks?: number;
+}
+
+const { class: className, style, weeks: weeksProp } = Astro.props;
+
+const MS_PER_DAY = 86_400_000;
+
+const LOCALE_MAP: Record<string, string> = {
+	zh_CN: "zh-CN",
+	zh_TW: "zh-TW",
+	en: "en-US",
+	ja: "ja-JP",
+	ru: "ru-RU",
+};
+
+const locale = LOCALE_MAP[siteConfig.lang] ?? "en-US";
+const timeZone = siteConfig.timezone;
+const weeks = Math.min(
+	60,
+	Math.max(4, Math.floor(weeksProp ?? checkinWallConfig.weeks ?? 53)),
+);
+const cellSize = Math.max(6, Math.floor(checkinWallConfig.cellSize ?? 11));
+const cellGap = Math.max(1, Math.floor(checkinWallConfig.cellGap ?? 3));
+
+type WallPost = { title: string; url: string };
+
+type WallDay = {
+	/** YYYY-MM-DD */
+	key: string;
+	/** 展示用的长日期，如 2026年7月14日 */
+	label: string;
+	count: number;
+	/** 0-4，0 表示当天没有文章 */
+	level: number;
+	posts: WallPost[];
+	future: boolean;
+};
+
+// 以站点时区取“日期”字符串，避免构建机时区造成偏移
+const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
+	year: "numeric",
+	month: "2-digit",
+	day: "2-digit",
+	...(timeZone ? { timeZone } : {}),
+});
+
+const toDayKey = (date: Date): string => dayKeyFormatter.format(date);
+// 用 UTC 零点表示某个日期，后续所有日期运算都在 UTC 下进行，避开夏令时
+const fromDayKey = (key: string): Date => new Date(`${key}T00:00:00.000Z`);
+
+const postsByDay = new Map<string, WallPost[]>();
+
+const addPostToDay = (dayKey: string, post: WallPost) => {
+	const list = postsByDay.get(dayKey) ?? [];
+	if (!list.some((item) => item.url === post.url)) {
+		list.push(post);
+	}
+	postsByDay.set(dayKey, list);
+};
+
+for (const post of await getSortedPosts()) {
+	// 草稿不计入打卡
+	if (post.data.draft) continue;
+
+	const entry: WallPost = {
+		title: post.data.title,
+		url: getPostUrlBySlug(post.id),
+	};
+
+	const published =
+		post.data.published instanceof Date
+			? post.data.published
+			: new Date(post.data.published);
+	if (!Number.isNaN(published.getTime())) {
+		addPostToDay(toDayKey(published), entry);
+	}
+
+	if (checkinWallConfig.countUpdated && post.data.updated) {
+		const updated =
+			post.data.updated instanceof Date
+				? post.data.updated
+				: new Date(post.data.updated);
+		if (!Number.isNaN(updated.getTime())) {
+			addPostToDay(toDayKey(updated), entry);
+		}
+	}
+}
+
+const today = fromDayKey(toDayKey(new Date()));
+const todayWeekday = today.getUTCDay();
+// 最后一列是本周（周日 → 周六），第一列是 weeks - 1 周之前的周日
+const rangeStart = new Date(
+	today.getTime() - (todayWeekday + (weeks - 1) * 7) * MS_PER_DAY,
+);
+
+const longDateFormatter = new Intl.DateTimeFormat(locale, {
+	year: "numeric",
+	month: "long",
+	day: "numeric",
+	timeZone: "UTC",
+});
+
+const days: WallDay[] = [];
+for (let index = 0; index < weeks * 7; index += 1) {
+	const date = new Date(rangeStart.getTime() + index * MS_PER_DAY);
+	const key = date.toISOString().slice(0, 10);
+	const dayPosts = postsByDay.get(key) ?? [];
+	days.push({
+		key,
+		label: longDateFormatter.format(date),
+		count: dayPosts.length,
+		level: 0,
+		posts: dayPosts,
+		future: date.getTime() > today.getTime(),
+	});
+}
+
+// 按一年内的最高产出来分配 4 级色阶，文章较少时也能看出深浅
+const maxDayCount = Math.max(
+	1,
+	...days.map((day) => day.count),
+);
+for (const day of days) {
+	day.level =
+		day.count === 0
+			? 0
+			: Math.min(4, Math.max(1, Math.ceil((day.count / maxDayCount) * 4)));
+}
+
+const pastDays = days.filter((day) => !day.future);
+const totalPosts = pastDays.reduce((sum, day) => sum + day.count, 0);
+const activeDays = pastDays.filter((day) => day.count > 0).length;
+
+let longestStreak = 0;
+let runningStreak = 0;
+for (const day of pastDays) {
+	runningStreak = day.count > 0 ? runningStreak + 1 : 0;
+	longestStreak = Math.max(longestStreak, runningStreak);
+}
+
+let currentStreak = 0;
+let streakCursor = pastDays.length - 1;
+// 今天还没写文章时，从昨天开始往前数
+if (streakCursor >= 0 && pastDays[streakCursor].count === 0) {
+	streakCursor -= 1;
+}
+while (streakCursor >= 0 && pastDays[streakCursor].count > 0) {
+	currentStreak += 1;
+	streakCursor -= 1;
+}
+
+// 月份标签：在包含「1 号」的那一列标注月份
+const monthFormatter = new Intl.DateTimeFormat(locale, {
+	month: "short",
+	timeZone: "UTC",
+});
+const monthLabels: { column: number; label: string }[] = [];
+for (let week = 0; week < weeks; week += 1) {
+	let labeled = false;
+	for (let dayOfWeek = 0; dayOfWeek < 7 && !labeled; dayOfWeek += 1) {
+		const date = fromDayKey(days[week * 7 + dayOfWeek].key);
+		if (date.getUTCDate() !== 1) continue;
+		// 两个标签至少间隔 3 列，避免挤在一起
+		if (monthLabels.some((item) => week - item.column < 3)) continue;
+		monthLabels.push({ column: week, label: monthFormatter.format(date) });
+		labeled = true;
+	}
+}
+if (monthLabels.length === 0 || monthLabels[0].column > 3) {
+	monthLabels.unshift({
+		column: 0,
+		label: monthFormatter.format(fromDayKey(days[0].key)),
+	});
+}
+
+// 星期标签只显示周一、周三、周五（与 GitHub 一致）
+const weekdayFormatter = new Intl.DateTimeFormat(locale, {
+	weekday: "short",
+	timeZone: "UTC",
+});
+const referenceSunday = fromDayKey("2024-01-07");
+const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
+	index === 1 || index === 3 || index === 5
+		? weekdayFormatter.format(
+				new Date(referenceSunday.getTime() + index * MS_PER_DAY),
+			)
+		: "",
+);
+
+const title = checkinWallConfig.title || i18n(I18nKey.checkinWall);
+const subtitle =
+	checkinWallConfig.subtitle || i18n(I18nKey.checkinWallSubtitle);
+const dayPostsTemplate = i18n(I18nKey.checkinWallDayPosts);
+// "天"/"days"/"日" 之类的单位，从现成的统计文案里复用
+const dayUnit = i18n(I18nKey.siteStatsDays).replace("{days}", "").trim();
+
+const stats = [
+	{ label: i18n(I18nKey.siteStatsPostCount), value: totalPosts },
+	{ label: i18n(I18nKey.checkinWallActiveDays), value: activeDays },
+	{ label: i18n(I18nKey.checkinWallLongestStreak), value: longestStreak },
+];
+
+const wallStyle = `--wall-cell:${cellSize}px;--wall-gap:${cellGap}px;--wall-weeks:${weeks};${style ?? ""}`;
+
+const summaryLabel = `${title}：${i18n(I18nKey.siteStatsPostCount)} ${totalPosts}，${i18n(I18nKey.checkinWallActiveDays)} ${activeDays}`;
+---
+
+<div
+	id="checkin-wall"
+	class:list={["checkin-wall card-base onload-animation mb-4", className]}
+	style={wallStyle}
+	data-pagefind-ignore
+>
+	<div class="checkin-wall-inner">
+		<div class="checkin-wall-header">
+			<div class="checkin-wall-heading">
+				<div class="checkin-wall-badge" aria-hidden="true">
+					<Icon name="material-symbols:local-fire-department-rounded" />
+				</div>
+				<div class="min-w-0">
+					<h2 class="checkin-wall-title">{title}</h2>
+					<p class="checkin-wall-subtitle">{subtitle}</p>
+				</div>
+			</div>
+
+			{
+				checkinWallConfig.showStats !== false && (
+					<div class="checkin-wall-stats">
+						{stats.map((stat) => (
+							<div class="checkin-wall-stat">
+								<span class="checkin-wall-stat-value">{stat.value}</span>
+								<span class="checkin-wall-stat-label">{stat.label}</span>
+							</div>
+						))}
+					</div>
+				)
+			}
+		</div>
+
+		<div class="checkin-wall-scroll custom-scrollbar">
+			<div class="checkin-wall-canvas">
+				<div class="checkin-wall-row">
+					<div class="checkin-wall-gutter" aria-hidden="true"></div>
+					<div class="checkin-wall-months" role="presentation">
+						{
+							monthLabels.map((month) => (
+								<span
+									class:list={[
+										"checkin-wall-month",
+										{ "checkin-wall-month-end": month.column > weeks - 4 },
+									]}
+									style={`grid-column:${month.column + 1}`}
+								>
+									{month.label}
+								</span>
+							))
+						}
+					</div>
+				</div>
+
+				<div class="checkin-wall-row">
+					<div class="checkin-wall-weekdays" aria-hidden="true">
+						{
+							weekdayLabels.map((label) => (
+								<span class="checkin-wall-weekday">{label}</span>
+							))
+						}
+					</div>
+
+					<div class="checkin-wall-cells" role="group" aria-label={summaryLabel}>
+						{
+							days.map((day) =>
+								day.posts.length > 0 ? (
+									<a
+										class="checkin-wall-cell"
+										href={day.posts[0].url}
+										data-level={day.level}
+										data-checkin-date={day.key}
+										data-checkin-label={day.label}
+										data-checkin-posts={JSON.stringify(day.posts)}
+										aria-label={`${day.label} · ${day.posts
+											.map((post) => post.title)
+											.join(" / ")}`}
+									/>
+								) : (
+									<span
+										class="checkin-wall-cell"
+										data-level={day.level}
+										data-future={day.future ? "true" : undefined}
+										aria-hidden="true"
+									/>
+								),
+							)
+						}
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="checkin-wall-footer">
+			<div class="checkin-wall-streak">
+				<Icon
+					name="material-symbols:bolt-rounded"
+					class="checkin-wall-streak-icon"
+					aria-hidden="true"
+				/>
+				<span>{i18n(I18nKey.checkinWallCurrentStreak)}</span>
+				<strong>{currentStreak}</strong>
+				<span>{dayUnit}</span>
+			</div>
+
+			{
+				checkinWallConfig.showLegend !== false && (
+					<div class="checkin-wall-legend" aria-hidden="true">
+						<span>{i18n(I18nKey.checkinWallLess)}</span>
+						{[0, 1, 2, 3, 4].map((level) => (
+							<span class="checkin-wall-cell" data-level={level} />
+						))}
+						<span>{i18n(I18nKey.checkinWallMore)}</span>
+					</div>
+				)
+			}
+		</div>
+	</div>
+</div>
+
+<script is:inline define:vars={{ dayPostsTemplate }}>
+	(() => {
+		if (window.__checkinWallTipReady) return;
+		window.__checkinWallTipReady = true;
+
+		const TIP_CLASS = "checkin-wall-tip";
+		const MAX_ITEMS = 5;
+		const EDGE = 8;
+
+		let tip = null;
+		let activeCell = null;
+
+		const ensureTip = () => {
+			if (tip && tip.isConnected) return tip;
+			tip = document.createElement("div");
+			tip.className = TIP_CLASS;
+			tip.setAttribute("role", "tooltip");
+			tip.dataset.visible = "false";
+			document.body.appendChild(tip);
+			return tip;
+		};
+
+		const hideTip = () => {
+			activeCell = null;
+			if (tip) tip.dataset.visible = "false";
+		};
+
+		const positionTip = (element, cell) => {
+			const rect = cell.getBoundingClientRect();
+			const width = element.offsetWidth;
+			const height = element.offsetHeight;
+			const maxLeft = window.innerWidth - width - EDGE;
+
+			let left = rect.left + rect.width / 2 - width / 2;
+			if (left < EDGE) left = EDGE;
+			if (left > maxLeft) left = Math.max(EDGE, maxLeft);
+
+			let top = rect.top - height - EDGE;
+			if (top < EDGE) top = rect.bottom + EDGE;
+
+			element.style.left = Math.round(left) + "px";
+			element.style.top = Math.round(top) + "px";
+		};
+
+		const renderTip = (cell, posts) => {
+			const element = ensureTip();
+			element.replaceChildren();
+
+			const date = document.createElement("div");
+			date.className = "checkin-wall-tip-date";
+			date.textContent = cell.dataset.checkinLabel || "";
+
+			const meta = document.createElement("div");
+			meta.className = "checkin-wall-tip-meta";
+			meta.textContent = dayPostsTemplate.replace("{count}", String(posts.length));
+
+			const list = document.createElement("div");
+			list.className = "checkin-wall-tip-list";
+			posts.slice(0, MAX_ITEMS).forEach((post) => {
+				const item = document.createElement("div");
+				item.className = "checkin-wall-tip-item";
+				item.textContent = post.title;
+				list.appendChild(item);
+			});
+			if (posts.length > MAX_ITEMS) {
+				const more = document.createElement("div");
+				more.className = "checkin-wall-tip-item checkin-wall-tip-more";
+				more.textContent = "+" + (posts.length - MAX_ITEMS);
+				list.appendChild(more);
+			}
+
+			element.append(date, meta, list);
+			positionTip(element, cell);
+			element.dataset.visible = "true";
+			activeCell = cell;
+		};
+
+		const showTip = (cell) => {
+			let posts = [];
+			try {
+				posts = JSON.parse(cell.dataset.checkinPosts || "[]");
+			} catch {
+				posts = [];
+			}
+			if (!Array.isArray(posts) || posts.length === 0) {
+				hideTip();
+				return;
+			}
+			renderTip(cell, posts);
+		};
+
+		const findCell = (target) =>
+			target instanceof Element ? target.closest("[data-checkin-date]") : null;
+
+		document.addEventListener("mouseover", (event) => {
+			const cell = findCell(event.target);
+			if (!cell) {
+				if (activeCell) hideTip();
+				return;
+			}
+			if (cell === activeCell) return;
+			showTip(cell);
+		});
+
+		document.addEventListener("focusin", (event) => {
+			const cell = findCell(event.target);
+			if (cell) showTip(cell);
+		});
+
+		document.addEventListener("focusout", hideTip);
+
+		document.addEventListener("keydown", (event) => {
+			if (event.key === "Escape") hideTip();
+		});
+
+		// Swup 页面切换后卡片会被替换，避免提示框残留
+		document.addEventListener("swup:contentReplaced", hideTip);
+
+		window.addEventListener("scroll", hideTip, true);
+		window.addEventListener("resize", hideTip);
+	})();
+</script>
+
+<style>
+	.checkin-wall {
+		--wall-gutter: 26px;
+		--wall-cell: 11px;
+		--wall-gap: 3px;
+		padding: 1rem 1.25rem 0.9rem;
+	}
+
+	.checkin-wall-inner {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.checkin-wall-header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		margin-bottom: 0.95rem;
+	}
+
+	.checkin-wall-heading {
+		display: flex;
+		align-items: center;
+		gap: 0.65rem;
+		min-width: 0;
+	}
+
+	.checkin-wall-badge {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		width: 2.4rem;
+		height: 2.4rem;
+		border-radius: 0.85rem;
+		background-color: var(--btn-regular-bg);
+		color: var(--btn-content);
+		font-size: 1.4rem;
+	}
+
+	.checkin-wall-title {
+		margin: 0;
+		font-size: 1.05rem;
+		font-weight: 700;
+		line-height: 1.3;
+		color: var(--deep-text);
+	}
+
+	.checkin-wall-subtitle {
+		margin: 2px 0 0;
+		font-size: 0.72rem;
+		line-height: 1.4;
+		color: var(--content-meta);
+	}
+
+	.checkin-wall-stats {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.checkin-wall-stat {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.25rem;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+		background-color: var(--btn-plain-bg-hover);
+		white-space: nowrap;
+	}
+
+	.checkin-wall-stat-value {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: var(--deep-text);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.checkin-wall-stat-label {
+		font-size: 0.7rem;
+		color: var(--content-meta);
+	}
+
+	.checkin-wall-scroll {
+		overflow-x: auto;
+		overflow-y: hidden;
+		padding-bottom: 0.3rem;
+	}
+
+	.checkin-wall-canvas {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		width: max-content;
+	}
+
+	.checkin-wall-row {
+		display: flex;
+		gap: 6px;
+	}
+
+	.checkin-wall-gutter {
+		flex: none;
+		width: var(--wall-gutter);
+	}
+
+	.checkin-wall-months {
+		display: grid;
+		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
+		gap: var(--wall-gap);
+	}
+
+	.checkin-wall-month {
+		grid-row: 1;
+		font-size: 0.65rem;
+		line-height: 1;
+		color: var(--content-meta);
+		white-space: nowrap;
+		justify-self: start;
+	}
+
+	.checkin-wall-month-end {
+		justify-self: end;
+	}
+
+	.checkin-wall-weekdays {
+		display: grid;
+		flex: none;
+		grid-template-rows: repeat(7, var(--wall-cell));
+		gap: var(--wall-gap);
+		width: var(--wall-gutter);
+	}
+
+	.checkin-wall-weekday {
+		font-size: 0.65rem;
+		line-height: var(--wall-cell);
+		color: var(--content-meta);
+		text-align: right;
+		white-space: nowrap;
+	}
+
+	.checkin-wall-cells {
+		display: grid;
+		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
+		grid-template-rows: repeat(7, var(--wall-cell));
+		grid-auto-flow: column;
+		gap: var(--wall-gap);
+	}
+
+	.checkin-wall-cell {
+		position: relative;
+		display: block;
+		width: var(--wall-cell);
+		height: var(--wall-cell);
+		border-radius: 2px;
+		background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+		transition:
+			transform 0.15s ease,
+			box-shadow 0.15s ease,
+			background-color 0.2s ease;
+	}
+
+	.checkin-wall-cell[data-level="1"] {
+		background-color: color-mix(in oklab, var(--primary) 28%, transparent);
+	}
+
+	.checkin-wall-cell[data-level="2"] {
+		background-color: color-mix(in oklab, var(--primary) 48%, transparent);
+	}
+
+	.checkin-wall-cell[data-level="3"] {
+		background-color: color-mix(in oklab, var(--primary) 70%, transparent);
+	}
+
+	.checkin-wall-cell[data-level="4"] {
+		background-color: var(--primary);
+	}
+
+	.checkin-wall-cell[data-future="true"] {
+		background-color: transparent;
+	}
+
+	.checkin-wall-cell[data-checkin-date]:hover,
+	.checkin-wall-cell[data-checkin-date]:focus-visible {
+		z-index: 1;
+		transform: scale(1.18);
+		box-shadow: 0 0 0 1.5px var(--primary);
+		outline: none;
+	}
+
+	.checkin-wall-footer {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-top: 0.85rem;
+		font-size: 0.72rem;
+		color: var(--content-meta);
+	}
+
+	.checkin-wall-streak {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	.checkin-wall-streak strong {
+		font-weight: 700;
+		color: var(--deep-text);
+	}
+
+	.checkin-wall-streak-icon {
+		font-size: 1rem;
+		color: var(--primary);
+	}
+
+	.checkin-wall-legend {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.checkin-wall-legend .checkin-wall-cell {
+		width: 10px;
+		height: 10px;
+	}
+
+	@media (max-width: 640px) {
+		.checkin-wall {
+			--wall-gutter: 22px;
+			padding: 0.85rem 0.9rem 0.8rem;
+		}
+
+		.checkin-wall-title {
+			font-size: 1rem;
+		}
+
+		.checkin-wall-subtitle {
+			font-size: 0.68rem;
+		}
+	}
+</style>
+
+<style is:global>
+	.checkin-wall-tip {
+		position: fixed;
+		top: 0;
+		left: 0;
+		z-index: var(--z-tooltip, 1070);
+		max-width: 260px;
+		padding: 8px 10px;
+		border-radius: 10px;
+		background-color: oklch(0.27 0.02 var(--hue));
+		color: #fff;
+		font-size: 0.75rem;
+		line-height: 1.45;
+		box-shadow: 0 10px 26px rgb(0 0 0 / 0.22);
+		pointer-events: none;
+		visibility: hidden;
+		opacity: 0;
+		transform: translateY(2px);
+		transition:
+			opacity 0.12s ease,
+			transform 0.12s ease;
+	}
+
+	.checkin-wall-tip[data-visible="true"] {
+		visibility: visible;
+		opacity: 1;
+		transform: translateY(0);
+	}
+
+	.checkin-wall-tip-date {
+		font-weight: 700;
+	}
+
+	.checkin-wall-tip-meta {
+		margin-top: 1px;
+		font-size: 0.7rem;
+		opacity: 0.7;
+	}
+
+	.checkin-wall-tip-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin-top: 6px;
+	}
+
+	.checkin-wall-tip-item {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.checkin-wall-tip-more {
+		opacity: 0.7;
+	}
+</style>

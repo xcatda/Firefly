@@ -287,6 +287,25 @@ export const en: Translation = {
 	[Key.calendarNovember]: "Nov",
 	[Key.calendarDecember]: "Dec",
 
+	// Writing streak wall
+	[Key.checkinWall]: "Writing Streak Wall",
+	[Key.checkinWallSubtitle]: "Every day of the past year, written down",
+	[Key.checkinWallActiveDays]: "Active days",
+	[Key.checkinWallLongestStreak]: "Longest streak",
+	[Key.checkinWallCurrentStreak]: "Current streak",
+	[Key.checkinWallDayPosts]: "{count} posts",
+	[Key.checkinWallLess]: "Less",
+	[Key.checkinWallMore]: "More",
+
+	// Todo list
+	[Key.todo]: "Todos",
+	[Key.todoDescription]: "Things to do, crossed off one by one",
+	[Key.todoEmpty]: "Nothing on the list right now",
+	[Key.todoCompleted]: "completed",
+	[Key.todoCheckin]: "Check in",
+	[Key.todoCheckedIn]: "Checked in today",
+	[Key.todoStreak]: "{days}-day streak",
+
 	[Key.shareArticle]: "Share",
 	[Key.generatingPoster]: "Generating Poster...",
 	[Key.copied]: "Copied",

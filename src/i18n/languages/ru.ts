@@ -288,6 +288,25 @@ export const ru: Translation = {
 	[Key.calendarNovember]: "Ноя",
 	[Key.calendarDecember]: "Дек",
 
+	// Стена писательской активности
+	[Key.checkinWall]: "Стена активности",
+	[Key.checkinWallSubtitle]: "Каждый день прошедшего года, записанный словами",
+	[Key.checkinWallActiveDays]: "Активных дней",
+	[Key.checkinWallLongestStreak]: "Максимальная серия",
+	[Key.checkinWallCurrentStreak]: "Текущая серия",
+	[Key.checkinWallDayPosts]: "{count} постов",
+	[Key.checkinWallLess]: "Меньше",
+	[Key.checkinWallMore]: "Больше",
+
+	// Список задач
+	[Key.todo]: "Задачи",
+	[Key.todoDescription]: "Дела, которые вычёркиваются одно за другим",
+	[Key.todoEmpty]: "Сейчас задач нет",
+	[Key.todoCompleted]: "выполнено",
+	[Key.todoCheckin]: "Отметиться",
+	[Key.todoCheckedIn]: "Сегодня отмечено",
+	[Key.todoStreak]: "серия {days} дн.",
+
 	[Key.shareArticle]: "Поделиться",
 	[Key.generatingPoster]: "Создание постера...",
 	[Key.copied]: "Скопировано",

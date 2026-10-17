@@ -278,6 +278,25 @@ export const zh_CN: Translation = {
 	[Key.calendarNovember]: "11月",
 	[Key.calendarDecember]: "12月",
 
+	// 写作打卡墙
+	[Key.checkinWall]: "写作打卡墙",
+	[Key.checkinWallSubtitle]: "过去一年，用每一篇文章记录下来的日子",
+	[Key.checkinWallActiveDays]: "打卡天数",
+	[Key.checkinWallLongestStreak]: "最长连续",
+	[Key.checkinWallCurrentStreak]: "当前连续",
+	[Key.checkinWallDayPosts]: "{count} 篇文章",
+	[Key.checkinWallLess]: "少",
+	[Key.checkinWallMore]: "多",
+
+	// 待办清单
+	[Key.todo]: "待办",
+	[Key.todoDescription]: "想做的事，一件一件划掉",
+	[Key.todoEmpty]: "暂时没有待办，先享受一下空白",
+	[Key.todoCompleted]: "已完成",
+	[Key.todoCheckin]: "今日打卡",
+	[Key.todoCheckedIn]: "今天已打卡",
+	[Key.todoStreak]: "连续 {days} 天",
+
 	[Key.shareArticle]: "分享",
 	[Key.generatingPoster]: "海报生成中...",
 	[Key.copied]: "已复制",

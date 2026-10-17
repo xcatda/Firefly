@@ -664,6 +664,27 @@ export type AdConfig = {
 	expireDate?: string; // 过期时间 (ISO 8601 格式)
 };
 
+// 首页写作打卡墙配置
+export type CheckinWallConfig = {
+	enable: boolean; // 是否在首页显示打卡墙
+	weeks: number; // 显示的周数（列数），53 约等于一年
+	title?: string; // 卡片标题，留空则使用 i18n 文案
+	subtitle?: string; // 卡片副标题，留空则使用 i18n 文案
+	showStats?: boolean; // 是否显示文章数/打卡天数/最长连续统计
+	showLegend?: boolean; // 是否显示「少 - 多」色阶图例
+	cellSize?: number; // 格子边长（px）
+	cellGap?: number; // 格子间距（px）
+	countUpdated?: boolean; // 是否把文章更新日期也算作一次打卡
+};
+
+// 待办清单页面配置
+export type TodoConfig = {
+	enable: boolean; // 是否启用待办页（关闭后导航栏不显示，「/todo/」跳 404）
+	title?: string; // 页面标题，留空则使用 i18n 文案
+	description?: string; // 页面副标题，留空则使用 i18n 文案
+	showProgress?: boolean; // 是否显示完成进度条
+};
+
 // 友链配置
 export type FriendLink = {
 	title: string; // 友链标题

@@ -36,7 +36,32 @@ const specCollection = defineCollection({
 	schema: z.object({}),
 });
 
+// 待办清单：一个待办 = 一个 markdown 文件，和写文章一样维护
+const todosCollection = defineCollection({
+	loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/todos" }),
+	schema: z.object({
+		title: z.string(),
+		// 创建日期，用于排序（写 YYYY-MM-DD 即可）
+		date: z.date().optional(),
+		// 是否已完成：true 时页面上会显示为划掉状态
+		done: z.boolean().optional().default(false),
+		// 备注，显示在标题下方
+		description: z.string().optional().default(""),
+
+		/* 进度型待办：填了 progressTotal 才会显示进度条和「今日打卡」按钮 */
+		// 起始进度（已经完成多少）
+		progress: z.number().optional().default(0),
+		// 总进度，不填就是普通待办
+		progressTotal: z.number().optional(),
+		// 每天打卡一次加多少，默认 1
+		progressStep: z.number().optional().default(1),
+		// 进度单位，比如「讲」「页」「天」
+		progressUnit: z.string().optional().default(""),
+	}),
+});
+
 export const collections = {
 	posts: postsCollection,
 	spec: specCollection,
+	todos: todosCollection,
 };

@@ -274,6 +274,25 @@ enum I18nKey {
 	calendarNovember = "calendarNovember",
 	calendarDecember = "calendarDecember",
 
+	// 写作打卡墙
+	checkinWall = "checkinWall",
+	checkinWallSubtitle = "checkinWallSubtitle",
+	checkinWallActiveDays = "checkinWallActiveDays",
+	checkinWallLongestStreak = "checkinWallLongestStreak",
+	checkinWallCurrentStreak = "checkinWallCurrentStreak",
+	checkinWallDayPosts = "checkinWallDayPosts",
+	checkinWallLess = "checkinWallLess",
+	checkinWallMore = "checkinWallMore",
+
+	// 待办清单
+	todo = "todo",
+	todoDescription = "todoDescription",
+	todoEmpty = "todoEmpty",
+	todoCompleted = "todoCompleted",
+	todoCheckin = "todoCheckin",
+	todoCheckedIn = "todoCheckedIn",
+	todoStreak = "todoStreak",
+
 	shareArticle = "shareArticle",
 	generatingPoster = "generatingPoster",
 	copied = "copied",

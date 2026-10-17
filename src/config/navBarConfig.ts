@@ -6,6 +6,7 @@ import {
 	NavBarSearchMethod,
 } from "../types/config";
 import { siteConfig } from "./siteConfig";
+import { todoConfig } from "./todoConfig";
 
 // 根据页面开关动态生成导航栏配置
 const getDynamicNavBarConfig = (): NavBarConfig => {
@@ -34,6 +35,17 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 		url: "/my/",
 		icon: "material-symbols:person",
 		children: [
+			// 待办清单，在 todoConfig 中可整体关闭
+			...(todoConfig.enable
+				? [
+						{
+							name: "待办",
+							url: "/todo/",
+							icon: "material-symbols:checklist-rounded",
+						},
+					]
+				: []),
+
 			// 根据配置决定是否添加相册，在siteConfig关闭pages.gallery时导航栏不显示相册
 			...(siteConfig.pages.gallery ? [LinkPreset.Gallery] : []),
 

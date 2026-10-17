@@ -5,6 +5,7 @@
 export type {
 	AnnouncementConfig,
 	BackgroundWallpaperConfig,
+	CheckinWallConfig,
 	CommentConfig,
 	CoverImageConfig,
 	ExpressiveCodeConfig,
@@ -22,6 +23,7 @@ export type {
 	SponsorConfig,
 	SponsorItem,
 	SponsorMethod,
+	TodoConfig,
 	WidgetComponentConfig,
 	WidgetComponentType,
 } from "../types/config";
@@ -29,6 +31,7 @@ export { adConfig1, adConfig2 } from "./adConfig"; // 广告配置
 export { announcementConfig } from "./announcementConfig"; // 公告配置
 // 样式配置
 export { backgroundWallpaper } from "./backgroundWallpaper"; // 背景壁纸配置
+export { checkinWallConfig } from "./checkinWallConfig"; // 首页写作打卡墙配置
 // 功能配置
 export { commentConfig } from "./commentConfig"; // 评论系统配置
 export { coverImageConfig } from "./coverImageConfig"; // 封面图配置
@@ -50,3 +53,4 @@ export { sidebarLayoutConfig } from "./sidebarConfig"; // 侧边栏布局配置
 // 核心配置
 export { siteConfig } from "./siteConfig"; // 站点基础配置
 export { sponsorConfig } from "./sponsorConfig"; // 赞助配置
+export { todoConfig } from "./todoConfig"; // 待办清单页面配置
