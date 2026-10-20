@@ -31,6 +31,11 @@ function appendCheckin(source, date) {
 	const eol = match[1];
 	const front = match[2];
 
+	// 保护一下：同一天最多写 20 次，避免脚本抽风把文件刷爆
+	const MAX_PER_DAY = 20;
+	const usedToday = (front.match(new RegExp(date, "g")) || []).length;
+	if (usedToday >= MAX_PER_DAY) return { error: "daily-cap" };
+
 	// 行内写法：checkins: [2026-10-15, 2026-10-16]
 	const inline = front.match(/^checkins:[ \t]*\[([\s\S]*?)\][ \t]*$/m);
 	if (inline) {
@@ -41,8 +46,7 @@ function appendCheckin(source, date) {
 		if (!dates.every((value) => DATE_PATTERN.test(value))) {
 			return { error: "bad-date-format" };
 		}
-		if (dates.includes(date)) return { text: source, added: false };
-
+		// 一天可以多次打卡：同一天重复写日期就是多次
 		const next = `checkins: [${[...dates, date].join(", ")}]`;
 		return { text: source.replace(inline[0], () => next), added: true };
 	}
@@ -59,12 +63,12 @@ function appendCheckin(source, date) {
 		if (!dates.every((value) => DATE_PATTERN.test(value))) {
 			return { error: "bad-date-format" };
 		}
-		const merged = dates.includes(date) ? dates : [...dates, date];
+		const merged = [...dates, date];
 		const trailing = /\r?\n$/.test(block[0]) ? eol : "";
 		const next = `checkins: [${merged.join(", ")}]${trailing}`;
 		return {
 			text: source.replace(block[0], () => next),
-			added: !dates.includes(date),
+			added: true,
 		};
 	}
 

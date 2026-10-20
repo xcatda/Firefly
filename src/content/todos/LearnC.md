@@ -7,4 +7,5 @@ progress: 51
 progressTotal: 100
 progressStep: 1
 progressUnit: 讲
+checkins: [2026-10-20, 2026-10-20, 2026-10-20]
 ---

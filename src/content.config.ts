@@ -58,8 +58,9 @@ const todosCollection = defineCollection({
 		// 进度单位，比如「讲」「页」「天」
 		progressUnit: z.string().optional().default(""),
 
-		// 打卡日期，一天一条，例如 checkins: [2026-10-15, 2026-10-16]
-		// 页面上的进度 = progress + 打卡天数 × progressStep
+		// 打卡日期，一天一条；同一天写多次就是「一天打卡多次」
+		// 例如 checkins: [2026-10-15, 2026-10-16, 2026-10-16]
+		// 页面上的进度 = progress + 打卡次数 × progressStep
 		checkins: z.array(z.date()).optional().default([]),
 	}),
 });

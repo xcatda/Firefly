@@ -11,6 +11,9 @@ import { getPostUrlBySlug } from "@/utils/url-utils";
  *
  * 类似 GitHub 贡献图的「打卡墙」：一格代表一天，颜色越深代表当天发布的文章越多。
  * 数据来自站内文章的发布日期（可选叠加更新日期），构建期直接渲染，无需外部接口。
+ *
+ * 性能：整块热力图用一个 SVG 渲染——空格用 <pattern> 平铺，只有「有文章的日期」才画
+ * 一个 <rect>，所以一年的墙只占一两 KB，页面里也不带任何 JS。
  */
 
 interface Props {
@@ -40,22 +43,13 @@ const weeks = Math.min(
 );
 const cellSize = Math.max(6, Math.floor(checkinWallConfig.cellSize ?? 11));
 const cellGap = Math.max(1, Math.floor(checkinWallConfig.cellGap ?? 3));
+const pitch = cellSize + cellGap;
+const gutter = 26; // 左侧星期标签宽度
+const labelHeight = 14; // 顶部月份标签高度
+const gridWidth = weeks * pitch - cellGap;
+const gridHeight = 7 * pitch - cellGap;
 
-type WallPost = { title: string; url: string };
-
-type WallDay = {
-	/** YYYY-MM-DD */
-	key: string;
-	/** 展示用的长日期，如 2026年7月14日 */
-	label: string;
-	count: number;
-	/** 0-4，0 表示当天没有文章 */
-	level: number;
-	posts: WallPost[];
-	future: boolean;
-};
-
-// 以站点时区取“日期”字符串，避免构建机时区造成偏移
+// 以站点时区取「日期」字符串，避免构建机时区造成偏移
 const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
 	year: "numeric",
 	month: "2-digit",
@@ -64,8 +58,19 @@ const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
 });
 
 const toDayKey = (date: Date): string => dayKeyFormatter.format(date);
-// 用 UTC 零点表示某个日期，后续所有日期运算都在 UTC 下进行，避开夏令时
 const fromDayKey = (key: string): Date => new Date(`${key}T00:00:00.000Z`);
+
+type WallPost = { title: string; url: string };
+type WallDay = {
+	key: string;
+	label: string;
+	count: number;
+	level: number;
+	posts: WallPost[];
+	week: number;
+	weekday: number;
+	future: boolean;
+};
 
 const postsByDay = new Map<string, WallPost[]>();
 
@@ -78,7 +83,6 @@ const addPostToDay = (dayKey: string, post: WallPost) => {
 };
 
 for (const post of await getSortedPosts()) {
-	// 草稿不计入打卡
 	if (post.data.draft) continue;
 
 	const entry: WallPost = {
@@ -130,15 +134,14 @@ for (let index = 0; index < weeks * 7; index += 1) {
 		count: dayPosts.length,
 		level: 0,
 		posts: dayPosts,
+		week: Math.floor(index / 7),
+		weekday: index % 7,
 		future: date.getTime() > today.getTime(),
 	});
 }
 
 // 按一年内的最高产出来分配 4 级色阶，文章较少时也能看出深浅
-const maxDayCount = Math.max(
-	1,
-	...days.map((day) => day.count),
-);
+const maxDayCount = Math.max(1, ...days.map((day) => day.count));
 for (const day of days) {
 	day.level =
 		day.count === 0
@@ -159,7 +162,6 @@ for (const day of pastDays) {
 
 let currentStreak = 0;
 let streakCursor = pastDays.length - 1;
-// 今天还没写文章时，从昨天开始往前数
 if (streakCursor >= 0 && pastDays[streakCursor].count === 0) {
 	streakCursor -= 1;
 }
@@ -179,7 +181,6 @@ for (let week = 0; week < weeks; week += 1) {
 	for (let dayOfWeek = 0; dayOfWeek < 7 && !labeled; dayOfWeek += 1) {
 		const date = fromDayKey(days[week * 7 + dayOfWeek].key);
 		if (date.getUTCDate() !== 1) continue;
-		// 两个标签至少间隔 3 列，避免挤在一起
 		if (monthLabels.some((item) => week - item.column < 3)) continue;
 		monthLabels.push({ column: week, label: monthFormatter.format(date) });
 		labeled = true;
@@ -210,7 +211,6 @@ const title = checkinWallConfig.title || i18n(I18nKey.checkinWall);
 const subtitle =
 	checkinWallConfig.subtitle || i18n(I18nKey.checkinWallSubtitle);
 const dayPostsTemplate = i18n(I18nKey.checkinWallDayPosts);
-// "天"/"days"/"日" 之类的单位，从现成的统计文案里复用
 const dayUnit = i18n(I18nKey.siteStatsDays).replace("{days}", "").trim();
 
 const stats = [
@@ -219,9 +219,13 @@ const stats = [
 	{ label: i18n(I18nKey.checkinWallLongestStreak), value: longestStreak },
 ];
 
-const wallStyle = `--wall-cell:${cellSize}px;--wall-gap:${cellGap}px;--wall-weeks:${weeks};${style ?? ""}`;
-
+const activeDaysList = days.filter((day) => day.level > 0);
 const summaryLabel = `${title}：${i18n(I18nKey.siteStatsPostCount)} ${totalPosts}，${i18n(I18nKey.checkinWallActiveDays)} ${activeDays}`;
+
+// 唯一 id，避免同一页出现两块墙时 <pattern> 冲突
+const patternId = `checkin-wall-${Math.random().toString(36).slice(2, 8)}`;
+
+const wallStyle = `--wall-cell:${cellSize}px;--wall-gap:${cellGap}px;${style ?? ""}`;
 ---
 
 <div
@@ -257,63 +261,95 @@ const summaryLabel = `${title}：${i18n(I18nKey.siteStatsPostCount)} ${totalPost
 		</div>
 
 		<div class="checkin-wall-scroll custom-scrollbar">
-			<div class="checkin-wall-canvas">
-				<div class="checkin-wall-row">
-					<div class="checkin-wall-gutter" aria-hidden="true"></div>
-					<div class="checkin-wall-months" role="presentation">
-						{
-							monthLabels.map((month) => (
-								<span
-									class:list={[
-										"checkin-wall-month",
-										{ "checkin-wall-month-end": month.column > weeks - 4 },
-									]}
-									style={`grid-column:${month.column + 1}`}
-								>
-									{month.label}
-								</span>
-							))
-						}
-					</div>
-				</div>
+			<svg
+				class="checkin-wall-svg"
+				width={gutter + gridWidth}
+				height={labelHeight + gridHeight}
+				viewBox={`0 0 ${gutter + gridWidth} ${labelHeight + gridHeight}`}
+				role="img"
+				aria-label={summaryLabel}
+			>
+				<defs>
+					<pattern
+						id={patternId}
+						width={pitch}
+						height={pitch}
+						patternUnits="userSpaceOnUse"
+					>
+						<rect
+							width={cellSize}
+							height={cellSize}
+							rx="2"
+							class="checkin-wall-cell-empty"
+						/>
+					</pattern>
+				</defs>
 
-				<div class="checkin-wall-row">
-					<div class="checkin-wall-weekdays" aria-hidden="true">
-						{
-							weekdayLabels.map((label) => (
-								<span class="checkin-wall-weekday">{label}</span>
-							))
-						}
-					</div>
+				{/* 空格：用 pattern 平铺，只画两块矩形 */}
+				<rect
+					x={gutter}
+					y={labelHeight}
+					width={gridWidth - pitch}
+					height={gridHeight}
+					fill={`url(#${patternId})`}
+				/>
+				<rect
+					x={gutter + gridWidth - pitch}
+					y={labelHeight}
+					width={cellSize}
+					height={(todayWeekday + 1) * pitch - cellGap}
+					fill={`url(#${patternId})`}
+				/>
 
-					<div class="checkin-wall-cells" role="group" aria-label={summaryLabel}>
-						{
-							days.map((day) =>
-								day.posts.length > 0 ? (
-									<a
-										class="checkin-wall-cell"
-										href={day.posts[0].url}
-										data-level={day.level}
-										data-checkin-date={day.key}
-										data-checkin-label={day.label}
-										data-checkin-posts={JSON.stringify(day.posts)}
-										aria-label={`${day.label} · ${day.posts
-											.map((post) => post.title)
-											.join(" / ")}`}
-									/>
-								) : (
-									<span
-										class="checkin-wall-cell"
-										data-level={day.level}
-										data-future={day.future ? "true" : undefined}
-										aria-hidden="true"
-									/>
-								),
-							)
-						}
-					</div>
-				</div>
-			</div>
+				{/* 有文章的日期 */}
+				{
+					activeDaysList.map((day) => (
+						<rect
+							x={gutter + day.week * pitch}
+							y={labelHeight + day.weekday * pitch}
+							width={cellSize}
+							height={cellSize}
+							rx="2"
+							class="checkin-wall-cell"
+							data-level={day.level}
+						>
+							<title>
+								{`${day.label} · ${dayPostsTemplate.replace("{count}", String(day.count))}`}
+							</title>
+						</rect>
+					))
+				}
+
+				{/* 月份 / 星期标签 */}
+				{
+					monthLabels.map((month) => (
+						<text
+							class:list={[
+								"checkin-wall-month",
+								{ "checkin-wall-month-end": month.column > weeks - 4 },
+							]}
+							x={gutter + month.column * pitch}
+							y={labelHeight - 4}
+						>
+							{month.label}
+						</text>
+					))
+				}
+				{
+					weekdayLabels.map((label, index) =>
+						label ? (
+							<text
+								class="checkin-wall-weekday"
+								x={gutter - 5}
+								y={labelHeight + index * pitch + cellSize - 1}
+								text-anchor="end"
+							>
+								{label}
+							</text>
+						) : null,
+					)
+				}
+			</svg>
 		</div>
 
 		<div class="checkin-wall-footer">
@@ -343,132 +379,8 @@ const summaryLabel = `${title}：${i18n(I18nKey.siteStatsPostCount)} ${totalPost
 	</div>
 </div>
 
-<script is:inline define:vars={{ dayPostsTemplate }}>
-	(() => {
-		if (window.__checkinWallTipReady) return;
-		window.__checkinWallTipReady = true;
-
-		const TIP_CLASS = "checkin-wall-tip";
-		const MAX_ITEMS = 5;
-		const EDGE = 8;
-
-		let tip = null;
-		let activeCell = null;
-
-		const ensureTip = () => {
-			if (tip && tip.isConnected) return tip;
-			tip = document.createElement("div");
-			tip.className = TIP_CLASS;
-			tip.setAttribute("role", "tooltip");
-			tip.dataset.visible = "false";
-			document.body.appendChild(tip);
-			return tip;
-		};
-
-		const hideTip = () => {
-			activeCell = null;
-			if (tip) tip.dataset.visible = "false";
-		};
-
-		const positionTip = (element, cell) => {
-			const rect = cell.getBoundingClientRect();
-			const width = element.offsetWidth;
-			const height = element.offsetHeight;
-			const maxLeft = window.innerWidth - width - EDGE;
-
-			let left = rect.left + rect.width / 2 - width / 2;
-			if (left < EDGE) left = EDGE;
-			if (left > maxLeft) left = Math.max(EDGE, maxLeft);
-
-			let top = rect.top - height - EDGE;
-			if (top < EDGE) top = rect.bottom + EDGE;
-
-			element.style.left = Math.round(left) + "px";
-			element.style.top = Math.round(top) + "px";
-		};
-
-		const renderTip = (cell, posts) => {
-			const element = ensureTip();
-			element.replaceChildren();
-
-			const date = document.createElement("div");
-			date.className = "checkin-wall-tip-date";
-			date.textContent = cell.dataset.checkinLabel || "";
-
-			const meta = document.createElement("div");
-			meta.className = "checkin-wall-tip-meta";
-			meta.textContent = dayPostsTemplate.replace("{count}", String(posts.length));
-
-			const list = document.createElement("div");
-			list.className = "checkin-wall-tip-list";
-			posts.slice(0, MAX_ITEMS).forEach((post) => {
-				const item = document.createElement("div");
-				item.className = "checkin-wall-tip-item";
-				item.textContent = post.title;
-				list.appendChild(item);
-			});
-			if (posts.length > MAX_ITEMS) {
-				const more = document.createElement("div");
-				more.className = "checkin-wall-tip-item checkin-wall-tip-more";
-				more.textContent = "+" + (posts.length - MAX_ITEMS);
-				list.appendChild(more);
-			}
-
-			element.append(date, meta, list);
-			positionTip(element, cell);
-			element.dataset.visible = "true";
-			activeCell = cell;
-		};
-
-		const showTip = (cell) => {
-			let posts = [];
-			try {
-				posts = JSON.parse(cell.dataset.checkinPosts || "[]");
-			} catch {
-				posts = [];
-			}
-			if (!Array.isArray(posts) || posts.length === 0) {
-				hideTip();
-				return;
-			}
-			renderTip(cell, posts);
-		};
-
-		const findCell = (target) =>
-			target instanceof Element ? target.closest("[data-checkin-date]") : null;
-
-		document.addEventListener("mouseover", (event) => {
-			const cell = findCell(event.target);
-			if (!cell) {
-				if (activeCell) hideTip();
-				return;
-			}
-			if (cell === activeCell) return;
-			showTip(cell);
-		});
-
-		document.addEventListener("focusin", (event) => {
-			const cell = findCell(event.target);
-			if (cell) showTip(cell);
-		});
-
-		document.addEventListener("focusout", hideTip);
-
-		document.addEventListener("keydown", (event) => {
-			if (event.key === "Escape") hideTip();
-		});
-
-		// Swup 页面切换后卡片会被替换，避免提示框残留
-		document.addEventListener("swup:contentReplaced", hideTip);
-
-		window.addEventListener("scroll", hideTip, true);
-		window.addEventListener("resize", hideTip);
-	})();
-</script>
-
 <style>
 	.checkin-wall {
-		--wall-gutter: 26px;
 		--wall-cell: 11px;
 		--wall-gap: 3px;
 		padding: 1rem 1.25rem 0.9rem;
@@ -557,108 +469,50 @@ const summaryLabel = `${title}：${i18n(I18nKey.siteStatsPostCount)} ${totalPost
 	.checkin-wall-scroll {
 		overflow-x: auto;
 		overflow-y: hidden;
-		padding-bottom: 0.3rem;
 	}
 
-	.checkin-wall-canvas {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		width: max-content;
+	.checkin-wall-svg {
+		display: block;
 	}
 
-	.checkin-wall-row {
-		display: flex;
-		gap: 6px;
+	.checkin-wall-svg .checkin-wall-cell-empty {
+		fill: color-mix(in oklab, var(--primary) 10%, transparent);
 	}
 
-	.checkin-wall-gutter {
-		flex: none;
-		width: var(--wall-gutter);
+	.checkin-wall-svg .checkin-wall-cell {
+		fill: color-mix(in oklab, var(--primary) 10%, transparent);
+		transition: fill 0.2s ease;
 	}
 
-	.checkin-wall-months {
-		display: grid;
-		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
-		gap: var(--wall-gap);
+	.checkin-wall-svg .checkin-wall-cell[data-level="1"] {
+		fill: color-mix(in oklab, var(--primary) 28%, transparent);
 	}
 
-	.checkin-wall-month {
-		grid-row: 1;
-		font-size: 0.65rem;
-		line-height: 1;
-		color: var(--content-meta);
-		white-space: nowrap;
-		justify-self: start;
+	.checkin-wall-svg .checkin-wall-cell[data-level="2"] {
+		fill: color-mix(in oklab, var(--primary) 48%, transparent);
+	}
+
+	.checkin-wall-svg .checkin-wall-cell[data-level="3"] {
+		fill: color-mix(in oklab, var(--primary) 70%, transparent);
+	}
+
+	.checkin-wall-svg .checkin-wall-cell[data-level="4"] {
+		fill: var(--primary);
+	}
+
+	.checkin-wall-svg .checkin-wall-cell:hover {
+		fill: var(--primary);
+	}
+
+	.checkin-wall-month,
+	.checkin-wall-weekday {
+		fill: var(--content-meta);
+		font-size: 9px;
+		font-family: inherit;
 	}
 
 	.checkin-wall-month-end {
-		justify-self: end;
-	}
-
-	.checkin-wall-weekdays {
-		display: grid;
-		flex: none;
-		grid-template-rows: repeat(7, var(--wall-cell));
-		gap: var(--wall-gap);
-		width: var(--wall-gutter);
-	}
-
-	.checkin-wall-weekday {
-		font-size: 0.65rem;
-		line-height: var(--wall-cell);
-		color: var(--content-meta);
-		text-align: right;
-		white-space: nowrap;
-	}
-
-	.checkin-wall-cells {
-		display: grid;
-		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
-		grid-template-rows: repeat(7, var(--wall-cell));
-		grid-auto-flow: column;
-		gap: var(--wall-gap);
-	}
-
-	.checkin-wall-cell {
-		position: relative;
-		display: block;
-		width: var(--wall-cell);
-		height: var(--wall-cell);
-		border-radius: 2px;
-		background-color: color-mix(in oklab, var(--primary) 10%, transparent);
-		transition:
-			transform 0.15s ease,
-			box-shadow 0.15s ease,
-			background-color 0.2s ease;
-	}
-
-	.checkin-wall-cell[data-level="1"] {
-		background-color: color-mix(in oklab, var(--primary) 28%, transparent);
-	}
-
-	.checkin-wall-cell[data-level="2"] {
-		background-color: color-mix(in oklab, var(--primary) 48%, transparent);
-	}
-
-	.checkin-wall-cell[data-level="3"] {
-		background-color: color-mix(in oklab, var(--primary) 70%, transparent);
-	}
-
-	.checkin-wall-cell[data-level="4"] {
-		background-color: var(--primary);
-	}
-
-	.checkin-wall-cell[data-future="true"] {
-		background-color: transparent;
-	}
-
-	.checkin-wall-cell[data-checkin-date]:hover,
-	.checkin-wall-cell[data-checkin-date]:focus-visible {
-		z-index: 1;
-		transform: scale(1.18);
-		box-shadow: 0 0 0 1.5px var(--primary);
-		outline: none;
+		text-anchor: end;
 	}
 
 	.checkin-wall-footer {
@@ -694,14 +548,33 @@ const summaryLabel = `${title}：${i18n(I18nKey.siteStatsPostCount)} ${totalPost
 		gap: 4px;
 	}
 
+	/* 图例的小方块（HTML 元素，不是 SVG） */
 	.checkin-wall-legend .checkin-wall-cell {
+		display: block;
 		width: 10px;
 		height: 10px;
+		border-radius: 2px;
+		background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+	}
+
+	.checkin-wall-legend .checkin-wall-cell[data-level="1"] {
+		background-color: color-mix(in oklab, var(--primary) 28%, transparent);
+	}
+
+	.checkin-wall-legend .checkin-wall-cell[data-level="2"] {
+		background-color: color-mix(in oklab, var(--primary) 48%, transparent);
+	}
+
+	.checkin-wall-legend .checkin-wall-cell[data-level="3"] {
+		background-color: color-mix(in oklab, var(--primary) 70%, transparent);
+	}
+
+	.checkin-wall-legend .checkin-wall-cell[data-level="4"] {
+		background-color: var(--primary);
 	}
 
 	@media (max-width: 640px) {
 		.checkin-wall {
-			--wall-gutter: 22px;
 			padding: 0.85rem 0.9rem 0.8rem;
 		}
 
@@ -712,62 +585,5 @@ const summaryLabel = `${title}：${i18n(I18nKey.siteStatsPostCount)} ${totalPost
 		.checkin-wall-subtitle {
 			font-size: 0.68rem;
 		}
-	}
-</style>
-
-<style is:global>
-	.checkin-wall-tip {
-		position: fixed;
-		top: 0;
-		left: 0;
-		z-index: var(--z-tooltip, 1070);
-		max-width: 260px;
-		padding: 8px 10px;
-		border-radius: 10px;
-		background-color: oklch(0.27 0.02 var(--hue));
-		color: #fff;
-		font-size: 0.75rem;
-		line-height: 1.45;
-		box-shadow: 0 10px 26px rgb(0 0 0 / 0.22);
-		pointer-events: none;
-		visibility: hidden;
-		opacity: 0;
-		transform: translateY(2px);
-		transition:
-			opacity 0.12s ease,
-			transform 0.12s ease;
-	}
-
-	.checkin-wall-tip[data-visible="true"] {
-		visibility: visible;
-		opacity: 1;
-		transform: translateY(0);
-	}
-
-	.checkin-wall-tip-date {
-		font-weight: 700;
-	}
-
-	.checkin-wall-tip-meta {
-		margin-top: 1px;
-		font-size: 0.7rem;
-		opacity: 0.7;
-	}
-
-	.checkin-wall-tip-list {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		margin-top: 6px;
-	}
-
-	.checkin-wall-tip-item {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.checkin-wall-tip-more {
-		opacity: 0.7;
 	}
 </style>

@@ -26,6 +26,7 @@ const locale = LOCALE_MAP[siteConfig.lang] ?? "en-US";
 const title = todoConfig.title || i18n(I18nKey.todo);
 const description = todoConfig.description || i18n(I18nKey.todoDescription);
 const heatmapTotalTemplate = i18n(I18nKey.todoHeatmapTotal);
+const todayCountTemplate = i18n(I18nKey.todoTodayCount);
 
 const entries = await getCollection("todos");
 
@@ -36,10 +37,11 @@ const items = await Promise.all(
 		const progressTotal = entry.data.progressTotal;
 		const progressStep = entry.data.progressStep ?? 1;
 
-		// checkins 是写进 markdown 的打卡日期，进度 = progress + 打卡天数 × progressStep
-		const checkins = [
-			...new Set((entry.data.checkins ?? []).map((date) => formatDateToYYYYMMDD(date))),
-		].sort();
+		// checkins 是写进 markdown 的打卡日期，同一天可以写多次（一天多次打卡）
+		// 进度 = progress + 打卡次数 × progressStep
+		const checkins = (entry.data.checkins ?? [])
+			.map((date) => formatDateToYYYYMMDD(date))
+			.sort();
 		const value = progressTotal
 			? Math.min(progressTotal, progress + checkins.length * progressStep)
 			: progress;
@@ -78,7 +80,7 @@ const total = todos.length;
 const doneCount = todos.filter((todo) => todo.done).length;
 const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 
-/* ---------- 底部「打卡记录」小墙：所有待办的打卡日期汇总 ---------- */
+/* ---------- 底部「打卡记录」小墙：所有待办的打卡汇总 ---------- */
 
 const checkinCounts = new Map<string, number>();
 for (const item of items) {
@@ -88,10 +90,14 @@ for (const item of items) {
 }
 const wallTotal = [...checkinCounts.values()].reduce((sum, count) => sum + count, 0);
 
-const weeks = Math.min(
-	53,
-	Math.max(4, Math.floor(todoConfig.heatmapWeeks ?? 26)),
-);
+const weeks = Math.min(53, Math.max(4, Math.floor(todoConfig.heatmapWeeks ?? 26)));
+const wallCell = 9;
+const wallGap = 2;
+const wallPitch = wallCell + wallGap;
+const wallGutter = 22;
+const wallLabelHeight = 12;
+const wallGridWidth = weeks * wallPitch - wallGap;
+const wallGridHeight = 7 * wallPitch - wallGap;
 
 const timeZone = siteConfig.timezone;
 const todayKey = new Intl.DateTimeFormat("en-CA", {
@@ -102,11 +108,18 @@ const todayKey = new Intl.DateTimeFormat("en-CA", {
 }).format(new Date());
 
 const todayUTC = new Date(`${todayKey}T00:00:00.000Z`);
+const todayWeekday = todayUTC.getUTCDay();
 const rangeStart = new Date(
-	todayUTC.getTime() - (todayUTC.getUTCDay() + (weeks - 1) * 7) * MS_PER_DAY,
+	todayUTC.getTime() - (todayWeekday + (weeks - 1) * 7) * MS_PER_DAY,
 );
 
-type WallDay = { key: string; count: number; level: number; future: boolean };
+type WallDay = {
+	key: string;
+	count: number;
+	level: number;
+	week: number;
+	weekday: number;
+};
 
 const wallDays: WallDay[] = [];
 for (let index = 0; index < weeks * 7; index += 1) {
@@ -116,7 +129,8 @@ for (let index = 0; index < weeks * 7; index += 1) {
 		key,
 		count: checkinCounts.get(key) ?? 0,
 		level: 0,
-		future: date.getTime() > todayUTC.getTime(),
+		week: Math.floor(index / 7),
+		weekday: index % 7,
 	});
 }
 
@@ -127,6 +141,7 @@ for (const day of wallDays) {
 			? 0
 			: Math.min(4, Math.max(1, Math.ceil((day.count / maxDayCount) * 4)));
 }
+const wallActiveDays = wallDays.filter((day) => day.level > 0);
 
 const monthFormatter = new Intl.DateTimeFormat(locale, {
 	month: "short",
@@ -162,6 +177,8 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 			)
 		: "",
 );
+
+const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 ---
 
 <MainGridLayout title={title} description={description}>
@@ -254,6 +271,7 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
                         <button type="button" class="todo-checkin" data-todo-checkin>
                           {i18n(I18nKey.todoCheckin)}
                         </button>
+                        <span class="todo-today" data-todo-today hidden />
                         <span class="todo-streak" data-todo-streak hidden />
                       </div>
                     ) : null}
@@ -284,50 +302,94 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
         </div>
 
         <div class="todo-wall-scroll">
-          <div
-            class="todo-wall-canvas"
-            style={`--wall-cell:9px;--wall-gap:2px;--wall-weeks:${weeks};`}
+          <svg
+            class="todo-wall-svg"
+            width={wallGutter + wallGridWidth}
+            height={wallLabelHeight + wallGridHeight}
+            viewBox={`0 0 ${wallGutter + wallGridWidth} ${wallLabelHeight + wallGridHeight}`}
+            role="img"
+            aria-label={`${i18n(I18nKey.todoHeatmap)}：${heatmapTotalTemplate.replace("{count}", String(wallTotal))}`}
+            data-pitch={wallPitch}
+            data-cell={wallCell}
+            data-gutter={wallGutter}
+            data-label-h={wallLabelHeight}
+            data-start={wallDays[0].key}
           >
-            <div class="todo-wall-row">
-              <div class="todo-wall-gutter" aria-hidden="true"></div>
-              <div class="todo-wall-months">
-                {monthLabels.map((month) => (
-                  <span
-                    class:list={[
-                      "todo-wall-month",
-                      { "todo-wall-month-end": month.column > weeks - 4 },
-                    ]}
-                    style={`grid-column:${month.column + 1}`}
+            <defs>
+              <pattern
+                id={wallPatternId}
+                width={wallPitch}
+                height={wallPitch}
+                patternUnits="userSpaceOnUse"
+              >
+                <rect width={wallCell} height={wallCell} rx="2" class="todo-wall-cell-empty" />
+              </pattern>
+            </defs>
+
+            <rect
+              x={wallGutter}
+              y={wallLabelHeight}
+              width={wallGridWidth - wallPitch}
+              height={wallGridHeight}
+              fill={`url(#${wallPatternId})`}
+            />
+            <rect
+              x={wallGutter + wallGridWidth - wallPitch}
+              y={wallLabelHeight}
+              width={wallCell}
+              height={(todayWeekday + 1) * wallPitch - wallGap}
+              fill={`url(#${wallPatternId})`}
+            />
+
+            {
+              wallActiveDays.map((day) => (
+                <rect
+                  x={wallGutter + day.week * wallPitch}
+                  y={wallLabelHeight + day.weekday * wallPitch}
+                  width={wallCell}
+                  height={wallCell}
+                  rx="2"
+                  class="todo-wall-cell"
+                  data-level={day.level}
+                  data-wall-date={day.key}
+                  data-count={day.count}
+                >
+                  <title>
+                    {`${day.key} · ${heatmapTotalTemplate.replace("{count}", String(day.count))}`}
+                  </title>
+                </rect>
+              ))
+            }
+
+            {
+              monthLabels.map((month) => (
+                <text
+                  class:list={[
+                    "todo-wall-month",
+                    { "todo-wall-month-end": month.column > weeks - 4 },
+                  ]}
+                  x={wallGutter + month.column * wallPitch}
+                  y={wallLabelHeight - 3}
+                >
+                  {month.label}
+                </text>
+              ))
+            }
+            {
+              weekdayLabels.map((label, index) =>
+                label ? (
+                  <text
+                    class="todo-wall-weekday"
+                    x={wallGutter - 4}
+                    y={wallLabelHeight + index * wallPitch + wallCell - 1}
+                    text-anchor="end"
                   >
-                    {month.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div class="todo-wall-row">
-              <div class="todo-wall-weekdays" aria-hidden="true">
-                {weekdayLabels.map((label) => (
-                  <span class="todo-wall-weekday">{label}</span>
-                ))}
-              </div>
-              <div class="todo-wall-cells">
-                {wallDays.map((day) => (
-                  <span
-                    class="todo-wall-cell"
-                    data-level={day.level}
-                    data-wall-date={day.key}
-                    data-count={day.count}
-                    data-future={day.future ? "true" : undefined}
-                    title={
-                      day.count > 0
-                        ? `${day.key} · ${heatmapTotalTemplate.replace("{count}", String(day.count))}`
-                        : undefined
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
+                    {label}
+                  </text>
+                ) : null,
+              )
+            }
+          </svg>
         </div>
 
         {wallTotal === 0 && (
@@ -342,7 +404,7 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
   is:inline
   define:vars={{
     checkinLabel: i18n(I18nKey.todoCheckin),
-    checkedLabel: i18n(I18nKey.todoCheckedIn),
+    todayCountTemplate,
     streakTemplate: i18n(I18nKey.todoStreak),
     wallTotalTemplate: heatmapTotalTemplate,
   }}
@@ -370,36 +432,46 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 
 		const pad = (value) => String(value).padStart(2, "0");
 
-		// 本地日期 YYYY-MM-DD，一天只算一次
+		// 本地日期 YYYY-MM-DD
 		const dayKey = (date) => {
 			const target = date ? new Date(date) : new Date();
 			return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
 		};
 
-		// 从今天（今天还没打卡就从昨天）往回数连续打卡天数
-		const streakOf = (days) => {
-			const list = Array.isArray(days) ? days : [...days];
-			if (list.length === 0) return 0;
-			const checked = new Set(list);
+		// 本地补记的打卡：{ [id]: { "2026-10-17": 2 } }（一天可以多次）
+		const localCountsOf = (state, id) => {
+			const raw = state[id];
+			if (!raw) return {};
+			// 兼容早期版本存成 ["2026-10-17", ...] 的格式
+			if (Array.isArray(raw)) {
+				const counts = {};
+				for (const day of raw) counts[day] = (counts[day] || 0) + 1;
+				return counts;
+			}
+			return typeof raw === "object" ? raw : {};
+		};
+
+		const sum = (map) =>
+			Object.values(map).reduce((total, value) => total + (Number(value) || 0), 0);
+
+		// markdown 里的打卡日期（可以有重复，重复就是一天打了多次）
+		const markdownDatesOf = (item) =>
+			(item.getAttribute("data-checkins") || "")
+				.split(",")
+				.map((value) => value.trim())
+				.filter(Boolean);
+
+		const streakOf = (dates) => {
+			if (dates.length === 0) return 0;
+			const days = new Set(dates);
 			const cursor = new Date();
-			if (!checked.has(dayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+			if (!days.has(dayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
 			let streak = 0;
-			while (checked.has(dayKey(cursor))) {
+			while (days.has(dayKey(cursor))) {
 				streak += 1;
 				cursor.setDate(cursor.getDate() - 1);
 			}
 			return streak;
-		};
-
-		// markdown 里已记录的打卡 + 浏览器本地补的打卡（同一日期只算一次）
-		const checkinSetOf = (item, localState) => {
-			const fromMarkdown = (item.getAttribute("data-checkins") || "")
-				.split(",")
-				.map((value) => value.trim())
-				.filter(Boolean);
-			const id = item.getAttribute("data-todo-id");
-			const local = Array.isArray(localState[id]) ? localState[id] : [];
-			return new Set([...fromMarkdown, ...local]);
 		};
 
 		// 把本地状态刷到勾选框 / 进度条 / 打卡按钮上
@@ -422,14 +494,20 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 					const base = Number(row.getAttribute("data-base")) || 0;
 					const totalPoints = Number(row.getAttribute("data-total")) || 0;
 					const step = Number(row.getAttribute("data-step")) || 1;
-					const days = checkinSetOf(item, checkState);
+
+					const dates = markdownDatesOf(item);
+					const local = localCountsOf(checkState, id);
+					const count = dates.length + sum(local);
+					const todayCount =
+						dates.filter((day) => day === today).length + (Number(local[today]) || 0);
+
 					const value =
-						totalPoints > 0 ? Math.min(totalPoints, base + days.size * step) : base;
+						totalPoints > 0 ? Math.min(totalPoints, base + count * step) : base;
 					completed = totalPoints > 0 && value >= totalPoints;
 
 					const bar = row.querySelector("[data-todo-bar]");
 					const valueEl = row.querySelector("[data-todo-progress-value]");
-					const button = row.querySelector("[data-todo-checkin]");
+					const todayEl = row.querySelector("[data-todo-today]");
 					const streakEl = row.querySelector("[data-todo-streak]");
 
 					if (bar) {
@@ -439,14 +517,18 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 					}
 					if (valueEl) valueEl.textContent = String(value);
 
-					if (button) {
-						const checkedIn = days.has(today);
-						button.disabled = checkedIn;
-						button.textContent = checkedIn ? checkedLabel : checkinLabel;
+					if (todayEl) {
+						todayEl.hidden = todayCount === 0;
+						if (todayCount > 0) {
+							todayEl.textContent = todayCountTemplate.replace(
+								"{count}",
+								String(todayCount),
+							);
+						}
 					}
 
 					if (streakEl) {
-						const streak = streakOf(days);
+						const streak = streakOf([...dates, ...Object.keys(local)]);
 						streakEl.hidden = streak < 2;
 						if (streak >= 2) {
 							streakEl.textContent = streakTemplate.replace("{days}", String(streak));
@@ -478,65 +560,118 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 			}
 		};
 
-		// 打卡成功后，把底部小墙里对应那天也点亮（不用等刷新）
+		// 写进 markdown 成功后，把底部小墙对应那天点亮（不用等刷新）
 		const bumpWall = (date) => {
-			const cell = document.querySelector(`[data-wall-date="${date}"]`);
-			if (!cell) return;
+			const svg = document.querySelector(".todo-wall-svg");
+			if (!svg) return;
 
-			const count = (Number(cell.getAttribute("data-count")) || 0) + 1;
-			cell.setAttribute("data-count", String(count));
+			const pitch = Number(svg.getAttribute("data-pitch")) || 11;
+			const cell = Number(svg.getAttribute("data-cell")) || 9;
+			const gutter = Number(svg.getAttribute("data-gutter")) || 22;
+			const labelH = Number(svg.getAttribute("data-label-h")) || 12;
+			const start = svg.getAttribute("data-start");
+			if (!start) return;
 
-			const cells = Array.from(document.querySelectorAll("[data-wall-date]"));
-			const counts = cells.map((element) =>
-				element === cell ? count : Number(element.getAttribute("data-count")) || 0,
+			const startDate = new Date(`${start}T00:00:00.000Z`);
+			const target = new Date(`${date}T00:00:00.000Z`);
+			const offset = Math.round((target.getTime() - startDate.getTime()) / 86400000);
+			if (offset < 0) return;
+
+			let rect = svg.querySelector(`[data-wall-date="${date}"]`);
+			if (!rect) {
+				rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+				rect.setAttribute("rx", "2");
+				rect.setAttribute("class", "todo-wall-cell");
+				rect.setAttribute("width", String(cell));
+				rect.setAttribute("height", String(cell));
+				rect.setAttribute("x", String(gutter + Math.floor(offset / 7) * pitch));
+				rect.setAttribute("y", String(labelH + (offset % 7) * pitch));
+				rect.setAttribute("data-wall-date", date);
+				rect.setAttribute("data-count", "0");
+				svg.appendChild(rect);
+			}
+
+			const counts = Array.from(svg.querySelectorAll("[data-wall-date]")).map((el) =>
+				el === rect
+					? (Number(rect.getAttribute("data-count")) || 0) + 1
+					: Number(el.getAttribute("data-count")) || 0,
 			);
+			rect.setAttribute("data-count", String(counts[counts.length - 1] ?? 1));
+
 			const max = Math.max(1, ...counts);
-			cells.forEach((element, index) => {
+			Array.from(svg.querySelectorAll("[data-wall-date]")).forEach((el, index) => {
 				const value = counts[index];
-				element.setAttribute(
+				el.setAttribute(
 					"data-level",
-					value === 0 ? "0" : String(Math.min(4, Math.max(1, Math.ceil((value / max) * 4)))),
+					value === 0
+						? "0"
+						: String(Math.min(4, Math.max(1, Math.ceil((value / max) * 4)))),
 				);
 			});
 
 			const totalEl = document.querySelector("[data-todo-wall-total]");
 			if (totalEl) {
-				const sum = counts.reduce((acc, value) => acc + value, 0);
-				totalEl.textContent = wallTotalTemplate.replace("{count}", String(sum));
+				totalEl.textContent = wallTotalTemplate.replace(
+					"{count}",
+					String(counts.reduce((acc, value) => acc + value, 0)),
+				);
 			}
 
 			const emptyEl = document.querySelector(".todo-wall-empty");
 			if (emptyEl) emptyEl.remove();
 		};
 
-		// 本地记一笔（线上就靠它）；dev 下再顺手写进 markdown
-		const checkin = (button) => {
-			const item = button.closest("[data-todo-id]");
-			if (!item) return;
-			const id = item.getAttribute("data-todo-id");
-			const state = readMap(CHECK_KEY);
-			const days = Array.isArray(state[id]) ? state[id] : [];
-			const today = dayKey();
-			if (days.includes(today)) return;
-
-			state[id] = days.concat(today);
-			writeMap(CHECK_KEY, state);
-			paint();
-			bumpWall(today);
-			commit(id, today);
-		};
-
-		// dev 下由 src/plugins/dev-todo-checkin.mjs 提供，线上没有这个接口就静默失败
+		// dev 下由 src/plugins/dev-todo-checkin.mjs 提供；线上没有这个接口就本地记一笔
 		const commit = async (id, date) => {
 			try {
 				const response = await fetch(
 					`/api/todo-check/?id=${encodeURIComponent(id)}&date=${encodeURIComponent(date)}`,
 					{ headers: { accept: "application/json" } },
 				);
-				if (!response.ok) return;
-				await response.json();
+				if (!response.ok) return false;
+				const data = await response.json();
+				return Boolean(data && data.ok);
 			} catch {
-				/* 线上没有这个接口，保持本地状态即可 */
+				return false;
+			}
+		};
+
+		const appendDate = (item, date) => {
+			const dates = markdownDatesOf(item);
+			dates.push(date);
+			item.setAttribute("data-checkins", dates.join(","));
+		};
+
+		const addLocalCount = (id, date) => {
+			const state = readMap(CHECK_KEY);
+			const counts = { ...localCountsOf(state, id) };
+			counts[date] = (Number(counts[date]) || 0) + 1;
+			state[id] = counts;
+			writeMap(CHECK_KEY, state);
+		};
+
+		// 打卡：dev 下写进 markdown；线上退回本地计数
+		const checkin = async (button) => {
+			const item = button.closest("[data-todo-id]");
+			if (!item) return;
+
+			const id = item.getAttribute("data-todo-id");
+			const today = dayKey();
+
+			button.disabled = true;
+			try {
+				const ok = await commit(id, today);
+				if (ok) {
+					appendDate(item, today);
+					paint();
+					bumpWall(today);
+				} else {
+					addLocalCount(id, today);
+					paint();
+				}
+			} finally {
+				button.disabled = false;
+				button.textContent = checkinLabel;
 			}
 		};
 
@@ -807,11 +942,11 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 	}
 
 	.todo-checkin:disabled {
-		background-color: var(--btn-regular-bg);
-		color: var(--content-meta);
+		opacity: 0.6;
 		cursor: default;
 	}
 
+	.todo-today,
 	.todo-streak {
 		flex: none;
 		padding: 0.05rem 0.45rem;
@@ -841,7 +976,7 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.75rem;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.6rem;
 		font-size: 0.8rem;
 		color: var(--content-meta);
 	}
@@ -868,97 +1003,44 @@ const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
 		overflow-y: hidden;
 	}
 
-	.todo-wall-canvas {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		width: max-content;
+	.todo-wall-svg {
+		display: block;
 	}
 
-	.todo-wall-row {
-		display: flex;
-		gap: 6px;
+	.todo-wall-svg .todo-wall-cell-empty {
+		fill: color-mix(in oklab, var(--primary) 10%, transparent);
 	}
 
-	.todo-wall-gutter {
-		flex: none;
-		width: 22px;
+	.todo-wall-svg .todo-wall-cell {
+		fill: color-mix(in oklab, var(--primary) 30%, transparent);
+		transition: fill 0.2s ease;
 	}
 
-	.todo-wall-months {
-		display: grid;
-		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
-		gap: var(--wall-gap);
+	.todo-wall-svg .todo-wall-cell[data-level="2"] {
+		fill: color-mix(in oklab, var(--primary) 50%, transparent);
 	}
 
-	.todo-wall-month {
-		grid-row: 1;
-		font-size: 0.6rem;
-		line-height: 1;
-		color: var(--content-meta);
-		white-space: nowrap;
-		justify-self: start;
+	.todo-wall-svg .todo-wall-cell[data-level="3"] {
+		fill: color-mix(in oklab, var(--primary) 72%, transparent);
+	}
+
+	.todo-wall-svg .todo-wall-cell[data-level="4"] {
+		fill: var(--primary);
+	}
+
+	.todo-wall-month,
+	.todo-wall-weekday {
+		fill: var(--content-meta);
+		font-size: 8px;
+		font-family: inherit;
 	}
 
 	.todo-wall-month-end {
-		justify-self: end;
-	}
-
-	.todo-wall-weekdays {
-		display: grid;
-		flex: none;
-		grid-template-rows: repeat(7, var(--wall-cell));
-		gap: var(--wall-gap);
-		width: 22px;
-	}
-
-	.todo-wall-weekday {
-		font-size: 0.6rem;
-		line-height: var(--wall-cell);
-		color: var(--content-meta);
-		text-align: right;
-		white-space: nowrap;
-	}
-
-	.todo-wall-cells {
-		display: grid;
-		grid-template-columns: repeat(var(--wall-weeks), var(--wall-cell));
-		grid-template-rows: repeat(7, var(--wall-cell));
-		grid-auto-flow: column;
-		gap: var(--wall-gap);
-	}
-
-	.todo-wall-cell {
-		display: block;
-		width: var(--wall-cell);
-		height: var(--wall-cell);
-		border-radius: 2px;
-		background-color: color-mix(in oklab, var(--primary) 10%, transparent);
-		transition: background-color 0.2s ease;
-	}
-
-	.todo-wall-cell[data-level="1"] {
-		background-color: color-mix(in oklab, var(--primary) 30%, transparent);
-	}
-
-	.todo-wall-cell[data-level="2"] {
-		background-color: color-mix(in oklab, var(--primary) 50%, transparent);
-	}
-
-	.todo-wall-cell[data-level="3"] {
-		background-color: color-mix(in oklab, var(--primary) 72%, transparent);
-	}
-
-	.todo-wall-cell[data-level="4"] {
-		background-color: var(--primary);
-	}
-
-	.todo-wall-cell[data-future="true"] {
-		background-color: transparent;
+		text-anchor: end;
 	}
 
 	.todo-wall-empty {
-		margin: 0.6rem 0 0;
+		margin: 0.5rem 0 0;
 		font-size: 0.72rem;
 		color: var(--content-meta);
 	}

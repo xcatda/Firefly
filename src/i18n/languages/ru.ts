@@ -304,7 +304,7 @@ export const ru: Translation = {
 	[Key.todoEmpty]: "Сейчас задач нет",
 	[Key.todoCompleted]: "выполнено",
 	[Key.todoCheckin]: "Отметиться",
-	[Key.todoCheckedIn]: "Сегодня отмечено",
+	[Key.todoTodayCount]: "сегодня {count} раз",
 	[Key.todoStreak]: "серия {days} дн.",
 	[Key.todoHeatmap]: "История отметок",
 	[Key.todoHeatmapTotal]: "всего {count} отметок",
