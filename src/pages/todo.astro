@@ -37,11 +37,16 @@ const items = await Promise.all(
 		const progressTotal = entry.data.progressTotal;
 		const progressStep = entry.data.progressStep ?? 1;
 
-		// checkins 是写进 markdown 的打卡日期，同一天可以写多次（一天多次打卡）
-		// 进度 = progress + 打卡次数 × progressStep
+		// checkins 每条是 "YYYY-MM-DD" 或 "YYYY-MM-DD HH:mm"（带时间的要加引号）
+		// 同一天可以写多次（一天多次打卡），进度 = progress + 打卡次数 × progressStep
 		const checkins = (entry.data.checkins ?? [])
-			.map((date) => formatDateToYYYYMMDD(date))
+			.map((value) =>
+				value instanceof Date ? formatDateToYYYYMMDD(value) : String(value).trim(),
+			)
+			.filter(Boolean)
 			.sort();
+		// 只取日期部分用于墙 / 当天统计
+		const checkinDays = checkins.map((value) => value.slice(0, 10));
 		const value = progressTotal
 			? Math.min(progressTotal, progress + checkins.length * progressStep)
 			: progress;
@@ -57,6 +62,7 @@ const items = await Promise.all(
 			progressStep,
 			progressUnit: entry.data.progressUnit ?? "",
 			checkins,
+			checkinDays,
 			value,
 			percent:
 				progressTotal && progressTotal > 0
@@ -84,7 +90,7 @@ const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
 
 const checkinCounts = new Map<string, number>();
 for (const item of items) {
-	for (const day of item.checkins) {
+	for (const day of item.checkinDays) {
 		checkinCounts.set(day, (checkinCounts.get(day) ?? 0) + 1);
 	}
 }
@@ -271,6 +277,9 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
                         <button type="button" class="todo-checkin" data-todo-checkin>
                           {i18n(I18nKey.todoCheckin)}
                         </button>
+                        <button type="button" class="todo-undo" data-todo-undo hidden>
+                          {i18n(I18nKey.todoUndo)}
+                        </button>
                         <span class="todo-today" data-todo-today hidden />
                         <span class="todo-streak" data-todo-streak hidden />
                       </div>
@@ -438,28 +447,44 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 			return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
 		};
 
-		// 本地补记的打卡：{ [id]: { "2026-10-17": 2 } }（一天可以多次）
-		const localCountsOf = (state, id) => {
+		// 一条打卡记录："2026-10-20" 或 "2026-10-20 22:31"
+		const entryNow = () => {
+			const now = new Date();
+			return `${dayKey(now)} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+		};
+		const dayOf = (entry) => String(entry).slice(0, 10);
+		const timeOf = (entry) => (String(entry).length > 10 ? String(entry).slice(11, 16) : "");
+
+		// 本地补记的打卡：{ [id]: ["2026-10-20 22:31", ...] }
+		// （兼容早期存成 { "2026-10-20": 2 } 的格式）
+		const localEntriesOf = (state, id) => {
 			const raw = state[id];
-			if (!raw) return {};
-			// 兼容早期版本存成 ["2026-10-17", ...] 的格式
-			if (Array.isArray(raw)) {
-				const counts = {};
-				for (const day of raw) counts[day] = (counts[day] || 0) + 1;
-				return counts;
+			if (!raw) return [];
+			if (Array.isArray(raw)) return raw.map((value) => String(value));
+			if (typeof raw === "object") {
+				const entries = [];
+				for (const [day, count] of Object.entries(raw)) {
+					for (let index = 0; index < (Number(count) || 0); index += 1) {
+						entries.push(day);
+					}
+				}
+				return entries;
 			}
-			return typeof raw === "object" ? raw : {};
+			return [];
 		};
 
-		const sum = (map) =>
-			Object.values(map).reduce((total, value) => total + (Number(value) || 0), 0);
-
-		// markdown 里的打卡日期（可以有重复，重复就是一天打了多次）
-		const markdownDatesOf = (item) =>
+		// markdown 里的打卡记录（可以有重复，重复就是一天打了多次）
+		const markdownEntriesOf = (item) =>
 			(item.getAttribute("data-checkins") || "")
 				.split(",")
 				.map((value) => value.trim())
 				.filter(Boolean);
+
+		// markdown + 本地补记
+		const allEntriesOf = (item, state) => [
+			...markdownEntriesOf(item),
+			...localEntriesOf(state, item.getAttribute("data-todo-id")),
+		];
 
 		const streakOf = (dates) => {
 			if (dates.length === 0) return 0;
@@ -495,11 +520,9 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 					const totalPoints = Number(row.getAttribute("data-total")) || 0;
 					const step = Number(row.getAttribute("data-step")) || 1;
 
-					const dates = markdownDatesOf(item);
-					const local = localCountsOf(checkState, id);
-					const count = dates.length + sum(local);
-					const todayCount =
-						dates.filter((day) => day === today).length + (Number(local[today]) || 0);
+					const entries = allEntriesOf(item, checkState);
+					const todayEntries = entries.filter((entry) => dayOf(entry) === today);
+					const count = entries.length;
 
 					const value =
 						totalPoints > 0 ? Math.min(totalPoints, base + count * step) : base;
@@ -508,6 +531,7 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 					const bar = row.querySelector("[data-todo-bar]");
 					const valueEl = row.querySelector("[data-todo-progress-value]");
 					const todayEl = row.querySelector("[data-todo-today]");
+					const undoEl = row.querySelector("[data-todo-undo]");
 					const streakEl = row.querySelector("[data-todo-streak]");
 
 					if (bar) {
@@ -517,18 +541,27 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 					}
 					if (valueEl) valueEl.textContent = String(value);
 
+					if (undoEl) undoEl.hidden = todayEntries.length === 0;
+
 					if (todayEl) {
-						todayEl.hidden = todayCount === 0;
-						if (todayCount > 0) {
-							todayEl.textContent = todayCountTemplate.replace(
+						todayEl.hidden = todayEntries.length === 0;
+						if (todayEntries.length > 0) {
+							const times = todayEntries
+								.map(timeOf)
+								.filter(Boolean)
+								.slice(-3);
+							const label = todayCountTemplate.replace(
 								"{count}",
-								String(todayCount),
+								String(todayEntries.length),
 							);
+							todayEl.textContent = times.length
+								? `${label} · ${times.join("、")}`
+								: label;
 						}
 					}
 
 					if (streakEl) {
-						const streak = streakOf([...dates, ...Object.keys(local)]);
+						const streak = streakOf(entries.map(dayOf));
 						streakEl.hidden = streak < 2;
 						if (streak >= 2) {
 							streakEl.textContent = streakTemplate.replace("{days}", String(streak));
@@ -622,12 +655,13 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 		};
 
 		// dev 下由 src/plugins/dev-todo-checkin.mjs 提供；线上没有这个接口就本地记一笔
-		const commit = async (id, date) => {
+		const commit = async (id, entry, mode) => {
 			try {
-				const response = await fetch(
-					`/api/todo-check/?id=${encodeURIComponent(id)}&date=${encodeURIComponent(date)}`,
-					{ headers: { accept: "application/json" } },
-				);
+				const query = new URLSearchParams({ id, entry });
+				if (mode === "undo") query.set("mode", "undo");
+				const response = await fetch(`/api/todo-check/?${query.toString()}`, {
+					headers: { accept: "application/json" },
+				});
 				if (!response.ok) return false;
 				const data = await response.json();
 				return Boolean(data && data.ok);
@@ -636,42 +670,92 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 			}
 		};
 
-		const appendDate = (item, date) => {
-			const dates = markdownDatesOf(item);
-			dates.push(date);
-			item.setAttribute("data-checkins", dates.join(","));
+		const appendEntry = (item, entry) => {
+			const entries = markdownEntriesOf(item);
+			entries.push(entry);
+			item.setAttribute("data-checkins", entries.join(","));
 		};
 
-		const addLocalCount = (id, date) => {
+		const removeLastEntry = (item, entry) => {
+			const entries = markdownEntriesOf(item);
+			const index = entries.lastIndexOf(entry);
+			if (index === -1) return;
+			entries.splice(index, 1);
+			item.setAttribute("data-checkins", entries.join(","));
+		};
+
+		const addLocalEntry = (id, entry) => {
 			const state = readMap(CHECK_KEY);
-			const counts = { ...localCountsOf(state, id) };
-			counts[date] = (Number(counts[date]) || 0) + 1;
-			state[id] = counts;
+			const entries = localEntriesOf(state, id);
+			entries.push(entry);
+			state[id] = entries;
 			writeMap(CHECK_KEY, state);
 		};
 
-		// 打卡：dev 下写进 markdown；线上退回本地计数
+		const popLocalEntry = (id) => {
+			const state = readMap(CHECK_KEY);
+			const entries = localEntriesOf(state, id);
+			entries.pop();
+			state[id] = entries;
+			writeMap(CHECK_KEY, state);
+		};
+
+		// 打卡：dev 下写进 markdown；线上退回本地记录
 		const checkin = async (button) => {
 			const item = button.closest("[data-todo-id]");
 			if (!item) return;
 
 			const id = item.getAttribute("data-todo-id");
-			const today = dayKey();
+			const entry = entryNow();
 
 			button.disabled = true;
 			try {
-				const ok = await commit(id, today);
+				const ok = await commit(id, entry, "add");
 				if (ok) {
-					appendDate(item, today);
+					appendEntry(item, entry);
 					paint();
-					bumpWall(today);
+					bumpWall(dayOf(entry));
 				} else {
-					addLocalCount(id, today);
+					addLocalEntry(id, entry);
 					paint();
 				}
 			} finally {
 				button.disabled = false;
 				button.textContent = checkinLabel;
+			}
+		};
+
+		// 撤销：优先撤本地补记的，其次撤 markdown 里的最后一条（只撤今天的）
+		const undo = async (button) => {
+			const item = button.closest("[data-todo-id]");
+			if (!item) return;
+
+			const id = item.getAttribute("data-todo-id");
+			const today = dayKey();
+			const localToday = localEntriesOf(readMap(CHECK_KEY), id).filter(
+				(entry) => dayOf(entry) === today,
+			);
+			const markdownToday = markdownEntriesOf(item).filter(
+				(entry) => dayOf(entry) === today,
+			);
+
+			button.disabled = true;
+			try {
+				if (localToday.length > 0) {
+					popLocalEntry(id);
+					paint();
+					return;
+				}
+				if (markdownToday.length === 0) return;
+
+				const entry = markdownToday[markdownToday.length - 1];
+				const ok = await commit(id, entry, "undo");
+				if (ok) {
+					removeLastEntry(item, entry);
+					paint();
+				}
+			} finally {
+				button.disabled = false;
 			}
 		};
 
@@ -707,6 +791,14 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 				if (button) {
 					event.preventDefault();
 					checkin(button);
+					return;
+				}
+
+				// 撤销按钮
+				const undoButton = target.closest("[data-todo-undo]");
+				if (undoButton) {
+					event.preventDefault();
+					undo(undoButton);
 					return;
 				}
 
@@ -946,6 +1038,37 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 		cursor: default;
 	}
 
+	/* 撤销：低调的描边小按钮 */
+	.todo-undo {
+		flex: none;
+		padding: 0.2rem 0.6rem;
+		border: 1px solid var(--line-color);
+		border-radius: 999px;
+		background-color: transparent;
+		color: var(--content-meta);
+		font-size: 0.72rem;
+		line-height: 1.3;
+		cursor: pointer;
+		transition:
+			color 0.15s ease,
+			border-color 0.15s ease;
+	}
+
+	.todo-undo:hover:not(:disabled) {
+		color: var(--primary);
+		border-color: color-mix(in oklab, var(--primary) 50%, transparent);
+	}
+
+	.todo-undo:focus-visible {
+		outline: 2px solid color-mix(in oklab, var(--primary) 60%, transparent);
+		outline-offset: 2px;
+	}
+
+	.todo-undo:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+
 	.todo-today,
 	.todo-streak {
 		flex: none;
@@ -1059,7 +1182,8 @@ const wallPatternId = `todo-wall-${Math.random().toString(36).slice(2, 8)}`;
 	}
 
 	/* 已完成的条目就不用再打卡了 */
-	.todo-item:has(.todo-checkbox:checked) .todo-checkin {
+	.todo-item:has(.todo-checkbox:checked) .todo-checkin,
+	.todo-item:has(.todo-checkbox:checked) .todo-undo {
 		display: none;
 	}
 

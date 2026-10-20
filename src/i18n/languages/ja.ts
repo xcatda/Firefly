@@ -302,6 +302,7 @@ export const ja: Translation = {
 	[Key.todoEmpty]: "いまは ToDo がありません",
 	[Key.todoCompleted]: "完了",
 	[Key.todoCheckin]: "今日のチェックイン",
+	[Key.todoUndo]: "取り消し",
 	[Key.todoTodayCount]: "今日 {count} 回",
 	[Key.todoStreak]: "{days} 日連続",
 	[Key.todoHeatmap]: "チェックイン記録",

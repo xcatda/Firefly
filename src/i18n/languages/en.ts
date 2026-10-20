@@ -303,6 +303,7 @@ export const en: Translation = {
 	[Key.todoEmpty]: "Nothing on the list right now",
 	[Key.todoCompleted]: "completed",
 	[Key.todoCheckin]: "Check in",
+	[Key.todoUndo]: "Undo",
 	[Key.todoTodayCount]: "{count}× today",
 	[Key.todoStreak]: "{days}-day streak",
 	[Key.todoHeatmap]: "Check-in history",

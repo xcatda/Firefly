@@ -294,6 +294,7 @@ export const zh_CN: Translation = {
 	[Key.todoEmpty]: "暂时没有待办，先享受一下空白",
 	[Key.todoCompleted]: "已完成",
 	[Key.todoCheckin]: "今日打卡",
+	[Key.todoUndo]: "撤销",
 	[Key.todoTodayCount]: "今天 {count} 次",
 	[Key.todoStreak]: "连续 {days} 天",
 	[Key.todoHeatmap]: "打卡记录",

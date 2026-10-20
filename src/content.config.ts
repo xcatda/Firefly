@@ -58,10 +58,14 @@ const todosCollection = defineCollection({
 		// 进度单位，比如「讲」「页」「天」
 		progressUnit: z.string().optional().default(""),
 
-		// 打卡日期，一天一条；同一天写多次就是「一天打卡多次」
-		// 例如 checkins: [2026-10-15, 2026-10-16, 2026-10-16]
+		// 打卡记录：一天可以多次，每条可以带时间
+		// 例如 checkins: [2026-10-15, "2026-10-16 22:31", "2026-10-16 23:05"]
+		// （只有日期时会解析成日期对象，带时间的请加引号写成字符串）
 		// 页面上的进度 = progress + 打卡次数 × progressStep
-		checkins: z.array(z.date()).optional().default([]),
+		checkins: z
+			.array(z.union([z.string(), z.date()]))
+			.optional()
+			.default([]),
 	}),
 });
 

@@ -290,6 +290,7 @@ enum I18nKey {
 	todoEmpty = "todoEmpty",
 	todoCompleted = "todoCompleted",
 	todoCheckin = "todoCheckin",
+	todoUndo = "todoUndo",
 	todoTodayCount = "todoTodayCount",
 	todoStreak = "todoStreak",
 	todoHeatmap = "todoHeatmap",
